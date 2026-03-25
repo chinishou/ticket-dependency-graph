@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --color-bg-primary: #0f172a;
+  --color-bg-secondary: #1e293b;
+  --color-bg-tertiary: #334155;
+  --color-border: #475569;
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+  --color-accent: #38bdf8;
+
+  --color-done: #22c55e;
+  --color-done-glow: rgba(34, 197, 94, 0.3);
+  --color-in-progress: #38bdf8;
+  --color-in-progress-glow: rgba(56, 189, 248, 0.3);
+  --color-available: #e2e8f0;
+  --color-available-glow: rgba(226, 232, 240, 0.15);
+  --color-locked: #475569;
+  --color-locked-glow: rgba(71, 85, 105, 0.1);
+  --color-blocked: #ef4444;
+  --color-blocked-glow: rgba(239, 68, 68, 0.3);
+  --color-milestone: #f59e0b;
+  --color-milestone-glow: rgba(245, 158, 11, 0.3);
+
+  --color-p1: #ef4444;
+  --color-p2: #f97316;
+  --color-p3: #eab308;
+  --color-p4: #6b7280;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* React Flow overrides for dark theme */
+.react-flow__background {
+  background-color: var(--color-bg-primary) !important;
+}
+
+.react-flow__controls button {
+  background-color: var(--color-bg-secondary) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+}
+
+.react-flow__controls button:hover {
+  background-color: var(--color-bg-tertiary) !important;
+}
+
+.react-flow__minimap {
+  background-color: var(--color-bg-secondary) !important;
+}
+
+/* Edit mode: larger handles */
+.edit-mode .react-flow__handle {
+  width: 12px !important;
+  height: 12px !important;
+  background: var(--color-accent) !important;
+  border: 2px solid var(--color-bg-secondary) !important;
+  opacity: 0.7;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.edit-mode .react-flow__handle:hover {
+  opacity: 1;
+  transform: scale(1.3);
+}
+
+/* Edit mode: edge selection */
+.edit-mode .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--color-accent) !important;
+  stroke-width: 3 !important;
+}
+
+.edit-mode .react-flow__edge:hover .react-flow__edge-path {
+  stroke: var(--color-accent) !important;
+  stroke-opacity: 0.7;
+}
+
+/* Edit mode: connection line */
+.edit-mode .react-flow__connection-path {
+  stroke: var(--color-accent) !important;
+  stroke-width: 2 !important;
+  stroke-dasharray: 5 5;
+}
