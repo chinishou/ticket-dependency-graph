@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useEffect } from 'react';
+import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -85,8 +85,56 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
   const goalsMap = useStore((s) => s.goals);
   const tasksMap = useStore((s) => s.tasks);
   const updateGoal = useStore((s) => s.updateGoal);
+  const addGoal = useStore((s) => s.addGoal);
+  const userName = useStore((s) => s.userName);
+  const heartbeat = useStore((s) => s.heartbeatPresence);
+  const leave = useStore((s) => s.leavePresence);
+  const getOtherViewers = useStore((s) => s.getOtherViewers);
 
   const [editMode, setEditMode] = useState(false);
+
+  // Auto-register presence
+  const presenceScope = `goal-map:${parentId}`;
+  useEffect(() => {
+    if (!userName) return;
+    heartbeat(presenceScope);
+    const interval = setInterval(() => heartbeat(presenceScope), 60 * 1000);
+    return () => {
+      clearInterval(interval);
+      leave(presenceScope);
+    };
+  }, [userName, presenceScope, heartbeat, leave]);
+
+  const otherViewers = getOtherViewers(presenceScope);
+
+  // Create goal form
+  const [showCreateGoal, setShowCreateGoal] = useState(false);
+  const [newGoalName, setNewGoalName] = useState('');
+  const createGoalInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showCreateGoal) createGoalInputRef.current?.focus();
+  }, [showCreateGoal]);
+
+  const handleCreateGoal = useCallback(() => {
+    if (!newGoalName.trim()) return;
+    const goal: Goal = {
+      id: `goal-${Date.now()}`,
+      name: newGoalName.trim(),
+      description: '',
+      owner: userName || '',
+      parentType,
+      parentId,
+      departmentPriority: 99,
+      taskIds: [],
+      milestoneIds: [],
+      dependsOnGoalIds: [],
+      unlocksGoalIds: [],
+    };
+    addGoal(goal);
+    setNewGoalName('');
+    setShowCreateGoal(false);
+  }, [newGoalName, userName, parentType, parentId, addGoal]);
 
   const parentGoals = useMemo(() => {
     return parentType === 'department'
@@ -235,18 +283,86 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
       <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 6, zIndex: 5 }}>
         <button
           onClick={toggleEditMode}
+          title={editMode ? 'Exit edit mode' : 'Enter edit mode'}
           style={{
             ...toolbarButtonStyle,
             backgroundColor: editMode ? '#a78bfa' : 'var(--color-bg-secondary)',
             color: editMode ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
           }}
         >
-          {editMode ? '🔓 Editing' : '🔒 Locked'}
+          {editMode ? 'Editing' : 'Edit'}
         </button>
         {editMode && (
-          <button onClick={applyAutoLayout} style={toolbarButtonStyle}>⟳ Auto Layout</button>
+          <button onClick={applyAutoLayout} style={toolbarButtonStyle}>Auto Layout</button>
         )}
+        <button
+          onClick={() => setShowCreateGoal(!showCreateGoal)}
+          style={{
+            ...toolbarButtonStyle,
+            backgroundColor: showCreateGoal ? '#a78bfa' : 'var(--color-bg-secondary)',
+            color: showCreateGoal ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
+          }}
+        >
+          + Goal
+        </button>
       </div>
+
+      {/* Create goal form */}
+      {showCreateGoal && (
+        <div style={{
+          position: 'absolute', top: 48, left: 12, width: 260, zIndex: 6,
+          backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)',
+          borderRadius: 8, padding: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>New Goal</div>
+          <input
+            ref={createGoalInputRef}
+            type="text"
+            placeholder="Goal name..."
+            value={newGoalName}
+            onChange={(e) => setNewGoalName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleCreateGoal()}
+            style={{
+              width: '100%', padding: '6px 8px', borderRadius: 5,
+              border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-tertiary)',
+              color: 'var(--color-text-primary)', fontSize: 12, outline: 'none', marginBottom: 8,
+            }}
+          />
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => { setShowCreateGoal(false); setNewGoalName(''); }}
+              style={{ ...toolbarButtonStyle, fontSize: 11 }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreateGoal}
+              disabled={!newGoalName.trim()}
+              style={{
+                ...toolbarButtonStyle, fontSize: 11,
+                backgroundColor: newGoalName.trim() ? '#a78bfa' : 'var(--color-bg-tertiary)',
+                color: newGoalName.trim() ? 'var(--color-bg-primary)' : 'var(--color-text-muted)',
+                border: 'none',
+              }}
+            >
+              Create
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Presence banner */}
+      {otherViewers.length > 0 && (
+        <div style={{
+          position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+          padding: '6px 16px', borderRadius: 6,
+          backgroundColor: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.25)',
+          color: '#38bdf8', fontSize: 12, zIndex: 5, pointerEvents: 'none',
+          whiteSpace: 'nowrap',
+        }}>
+          {otherViewers.join(', ')} {otherViewers.length === 1 ? 'is' : 'are'} also viewing
+        </div>
+      )}
 
       {editMode && (
         <div style={{

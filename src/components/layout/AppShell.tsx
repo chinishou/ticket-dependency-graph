@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { UserTagPicker } from './UserTagPicker';
 
 interface AppShellProps {
   children: ReactNode;
@@ -71,6 +72,7 @@ export function AppShell({ children, breadcrumbs, title, rightContent }: AppShel
         {/* Right content */}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           {rightContent}
+          <UserTagPicker />
         </div>
       </header>
 

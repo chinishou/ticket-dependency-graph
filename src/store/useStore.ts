@@ -1,10 +1,25 @@
 import { create } from 'zustand';
 import type { Company, Department, Project, Goal, Task, Milestone, Worker } from '../types';
 import {
-  company, departments, projects, goals, tasks, milestones, workers,
+  company as mockCompany, departments as mockDepartments, projects as mockProjects,
+  goals as mockGoals, tasks as mockTasks, milestones as mockMilestones, workers as mockWorkers,
 } from '../data/mockData';
 
+interface LockInfo {
+  scope: string;
+  lockedBy: string;
+  lockedAt: string;
+  expiresAt: string;
+}
+
+interface PresenceInfo {
+  scope: string;
+  userName: string;
+  lastSeen: string;
+}
+
 interface AppState {
+  // Data
   company: Company;
   departments: Map<string, Department>;
   projects: Map<string, Project>;
@@ -13,6 +28,27 @@ interface AppState {
   milestones: Map<string, Milestone>;
   workers: Map<string, Worker>;
 
+  // Connection state
+  isLoading: boolean;
+  isConnected: boolean;
+  lastModified: string | null;
+
+  // User tag
+  userName: string | null;
+  setUserName: (name: string | null) => void;
+
+  // Locks
+  locks: Map<string, LockInfo>;
+  acquireLock: (scope: string) => Promise<{ success: boolean; lockedBy?: string }>;
+  releaseLock: (scope: string) => Promise<void>;
+
+  // Presence
+  presence: PresenceInfo[];
+  heartbeatPresence: (scope: string) => Promise<void>;
+  leavePresence: (scope: string) => Promise<void>;
+  getOtherViewers: (scope: string) => string[];
+
+  // UI state
   selectedTaskId: string | null;
   selectedMilestoneId: string | null;
   focusedNodeId: string | null;
@@ -20,12 +56,18 @@ interface AppState {
   setSelectedMilestone: (id: string | null) => void;
   setFocusedNode: (id: string | null) => void;
 
-  // Mutations
+  // Mutations (still sync for local state, fire API in background)
   updateTask: (taskId: string, updates: Partial<Task>) => void;
   updateMilestone: (milestoneId: string, updates: Partial<Milestone>) => void;
   updateGoal: (goalId: string, updates: Partial<Goal>) => void;
+  addGoal: (goal: Goal) => void;
+  addMilestone: (milestone: Milestone) => void;
   addTaskToGoal: (goalId: string, task: Task) => void;
   removeTaskFromGoal: (goalId: string, taskId: string) => void;
+
+  // Data loading
+  fetchState: () => Promise<void>;
+  pollForUpdates: () => Promise<void>;
 
   // Lookups
   getTasksForGoal: (goalId: string) => Task[];
@@ -42,14 +84,154 @@ function toMap<T extends { id: string }>(items: T[]): Map<string, T> {
   return new Map(items.map((item) => [item.id, item]));
 }
 
+function objectToMap<T extends { id: string }>(obj: Record<string, T>): Map<string, T> {
+  return new Map(Object.entries(obj));
+}
+
+// Apply server response entities to local state
+function applyEntities(entities: Record<string, Record<string, unknown>>) {
+  const state: Partial<AppState> = {};
+  if (entities.companies) {
+    const vals = Object.values(entities.companies) as Company[];
+    if (vals.length > 0) state.company = vals[0];
+  }
+  if (entities.departments) state.departments = objectToMap(entities.departments as unknown as Record<string, Department>);
+  if (entities.projects) state.projects = objectToMap(entities.projects as unknown as Record<string, Project>);
+  if (entities.goals) state.goals = objectToMap(entities.goals as unknown as Record<string, Goal>);
+  if (entities.tasks) state.tasks = objectToMap(entities.tasks as unknown as Record<string, Task>);
+  if (entities.milestones) state.milestones = objectToMap(entities.milestones as unknown as Record<string, Milestone>);
+  if (entities.workers) state.workers = objectToMap(entities.workers as unknown as Record<string, Worker>);
+  return state;
+}
+
+function applyLocks(locks: { scope: string; locked_by: string; locked_at: string; expires_at: string }[]): Map<string, LockInfo> {
+  const map = new Map<string, LockInfo>();
+  for (const l of locks) {
+    map.set(l.scope, { scope: l.scope, lockedBy: l.locked_by, lockedAt: l.locked_at, expiresAt: l.expires_at });
+  }
+  return map;
+}
+
+// Fire mutation to server, reconcile state from response
+async function serverMutation(type: string, body: Record<string, unknown>, set: (s: Partial<AppState>) => void) {
+  try {
+    const res = await fetch(`/api/mutations/${type}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.entities) {
+        set({ ...applyEntities(data.entities), lastModified: data.lastModified });
+      }
+    }
+  } catch {
+    // Server unavailable — local state is still valid from optimistic update
+  }
+}
+
 export const useStore = create<AppState>((set, get) => ({
-  company,
-  departments: toMap(departments),
-  projects: toMap(projects),
-  goals: toMap(goals),
-  tasks: toMap(tasks),
-  milestones: toMap(milestones),
-  workers: toMap(workers),
+  // Initialize with mock data as fallback (overwritten by fetchState)
+  company: mockCompany,
+  departments: toMap(mockDepartments),
+  projects: toMap(mockProjects),
+  goals: toMap(mockGoals),
+  tasks: toMap(mockTasks),
+  milestones: toMap(mockMilestones),
+  workers: toMap(mockWorkers),
+
+  isLoading: false,
+  isConnected: false,
+  lastModified: null,
+
+  userName: typeof window !== 'undefined' ? localStorage.getItem('tech-tree-user') : null,
+  setUserName: (name) => {
+    if (name) {
+      localStorage.setItem('tech-tree-user', name);
+      // Create user tag on server
+      fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }).catch(() => {});
+    } else {
+      localStorage.removeItem('tech-tree-user');
+    }
+    set({ userName: name });
+  },
+
+  locks: new Map(),
+
+  acquireLock: async (scope) => {
+    const userName = get().userName;
+    if (!userName) return { success: false, lockedBy: 'unknown' };
+    try {
+      const res = await fetch('/api/locks/acquire', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope, userName }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const locks = new Map(get().locks);
+        locks.set(scope, { scope, lockedBy: userName, lockedAt: new Date().toISOString(), expiresAt: '' });
+        set({ locks });
+        return { success: true };
+      }
+      return { success: false, lockedBy: data.lockedBy };
+    } catch {
+      return { success: false, lockedBy: 'server unavailable' };
+    }
+  },
+
+  releaseLock: async (scope) => {
+    const userName = get().userName;
+    if (!userName) return;
+    try {
+      await fetch('/api/locks/release', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope, userName }),
+      });
+    } catch {}
+    const locks = new Map(get().locks);
+    locks.delete(scope);
+    set({ locks });
+  },
+
+  presence: [],
+
+  heartbeatPresence: async (scope) => {
+    const userName = get().userName;
+    if (!userName) return;
+    try {
+      await fetch('/api/presence/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope, userName }),
+      });
+    } catch {}
+  },
+
+  leavePresence: async (scope) => {
+    const userName = get().userName;
+    if (!userName) return;
+    try {
+      await fetch('/api/presence/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope, userName }),
+      });
+    } catch {}
+  },
+
+  getOtherViewers: (scope) => {
+    const userName = get().userName;
+    return get().presence
+      .filter((p) => p.scope === scope && p.userName !== userName)
+      .map((p) => p.userName);
+  },
 
   selectedTaskId: null,
   selectedMilestoneId: null,
@@ -57,6 +239,97 @@ export const useStore = create<AppState>((set, get) => ({
   setSelectedTask: (id) => set({ selectedTaskId: id, selectedMilestoneId: null }),
   setSelectedMilestone: (id) => set({ selectedMilestoneId: id, selectedTaskId: null }),
   setFocusedNode: (id) => set({ focusedNodeId: id }),
+
+  fetchState: async () => {
+    set({ isLoading: true });
+    try {
+      const res = await fetch('/api/state');
+      if (res.ok) {
+        const data = await res.json();
+        set({
+          ...applyEntities(data.entities),
+          locks: applyLocks(data.locks),
+          presence: data.presence || [],
+          lastModified: data.lastModified,
+          isConnected: true,
+          isLoading: false,
+        });
+      } else {
+        set({ isConnected: false, isLoading: false });
+      }
+    } catch {
+      // Server not available — keep mock data
+      set({ isConnected: false, isLoading: false });
+    }
+  },
+
+  pollForUpdates: async () => {
+    const lastModified = get().lastModified;
+    try {
+      const url = lastModified ? `/api/poll?since=${encodeURIComponent(lastModified)}` : '/api/poll';
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const newState: Partial<AppState> = {
+          locks: applyLocks(data.locks),
+          presence: data.presence || [],
+          lastModified: data.lastModified,
+          isConnected: true,
+        };
+        if (data.changed && data.entities) {
+          // Merge changed entities into existing state
+          const existing = get();
+          if (data.entities.tasks) {
+            const merged = new Map(existing.tasks);
+            for (const [id, val] of Object.entries(data.entities.tasks)) {
+              merged.set(id, val as Task);
+            }
+            newState.tasks = merged;
+          }
+          if (data.entities.goals) {
+            const merged = new Map(existing.goals);
+            for (const [id, val] of Object.entries(data.entities.goals)) {
+              merged.set(id, val as Goal);
+            }
+            newState.goals = merged;
+          }
+          if (data.entities.milestones) {
+            const merged = new Map(existing.milestones);
+            for (const [id, val] of Object.entries(data.entities.milestones)) {
+              merged.set(id, val as Milestone);
+            }
+            newState.milestones = merged;
+          }
+          if (data.entities.departments) {
+            const merged = new Map(existing.departments);
+            for (const [id, val] of Object.entries(data.entities.departments)) {
+              merged.set(id, val as Department);
+            }
+            newState.departments = merged;
+          }
+          if (data.entities.projects) {
+            const merged = new Map(existing.projects);
+            for (const [id, val] of Object.entries(data.entities.projects)) {
+              merged.set(id, val as Project);
+            }
+            newState.projects = merged;
+          }
+          if (data.entities.workers) {
+            const merged = new Map(existing.workers);
+            for (const [id, val] of Object.entries(data.entities.workers)) {
+              merged.set(id, val as Worker);
+            }
+            newState.workers = merged;
+          }
+        }
+        set(newState);
+      }
+    } catch {
+      set({ isConnected: false });
+    }
+  },
+
+  // --- Mutations: optimistic local update + async server sync ---
 
   updateTask: (taskId, updates) => {
     const newTasks = new Map(get().tasks);
@@ -66,9 +339,7 @@ export const useStore = create<AppState>((set, get) => ({
     const updatedTask = { ...existing, ...updates };
     newTasks.set(taskId, updatedTask);
 
-    // Sync reverse links: if dependsOnTaskIds changed, update the parent tasks' unlocksTaskIds
     if (updates.dependsOnTaskIds) {
-      // Remove this task from old parents' unlocksTaskIds
       for (const oldDepId of existing.dependsOnTaskIds) {
         const parent = newTasks.get(oldDepId);
         if (parent) {
@@ -78,7 +349,6 @@ export const useStore = create<AppState>((set, get) => ({
           });
         }
       }
-      // Add this task to new parents' unlocksTaskIds
       for (const newDepId of updates.dependsOnTaskIds) {
         const parent = newTasks.get(newDepId);
         if (parent && !parent.unlocksTaskIds.includes(taskId)) {
@@ -91,7 +361,6 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     if (updates.unlocksTaskIds) {
-      // Remove this task from old children's dependsOnTaskIds
       for (const oldChildId of existing.unlocksTaskIds) {
         const child = newTasks.get(oldChildId);
         if (child) {
@@ -101,7 +370,6 @@ export const useStore = create<AppState>((set, get) => ({
           });
         }
       }
-      // Add this task to new children's dependsOnTaskIds
       for (const newChildId of updates.unlocksTaskIds) {
         const child = newTasks.get(newChildId);
         if (child && !child.dependsOnTaskIds.includes(taskId)) {
@@ -114,6 +382,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     set({ tasks: newTasks });
+    serverMutation('updateTask', { entityId: taskId, updates }, set);
   },
 
   updateMilestone: (milestoneId, updates) => {
@@ -125,9 +394,7 @@ export const useStore = create<AppState>((set, get) => ({
     const updated = { ...existing, ...updates };
     newMilestones.set(milestoneId, updated);
 
-    // Sync reverse links: requiredTaskIds changed → update tasks' unlocksMilestoneIds
     if (updates.requiredTaskIds) {
-      // Remove milestone from old tasks' unlocksMilestoneIds
       for (const oldTaskId of existing.requiredTaskIds) {
         const task = newTasks.get(oldTaskId);
         if (task) {
@@ -137,7 +404,6 @@ export const useStore = create<AppState>((set, get) => ({
           });
         }
       }
-      // Add milestone to new tasks' unlocksMilestoneIds
       for (const newTaskId of updates.requiredTaskIds) {
         const task = newTasks.get(newTaskId);
         if (task && !task.unlocksMilestoneIds.includes(milestoneId)) {
@@ -149,7 +415,6 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
-    // Sync reverse links: requiredMilestoneIds changed → update milestones' unlocksMilestoneIds
     if (updates.requiredMilestoneIds) {
       for (const oldMsId of existing.requiredMilestoneIds) {
         const ms = newMilestones.get(oldMsId);
@@ -171,7 +436,6 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
-    // Sync reverse links: unlocksTaskIds changed → update tasks' dependsOnMilestoneIds
     if (updates.unlocksTaskIds) {
       for (const oldTaskId of existing.unlocksTaskIds) {
         const task = newTasks.get(oldTaskId);
@@ -194,6 +458,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     set({ milestones: newMilestones, tasks: newTasks });
+    serverMutation('updateMilestone', { entityId: milestoneId, updates }, set);
   },
 
   updateGoal: (goalId, updates) => {
@@ -204,7 +469,6 @@ export const useStore = create<AppState>((set, get) => ({
     const updated = { ...existing, ...updates };
     newGoals.set(goalId, updated);
 
-    // Sync reverse links: unlocksGoalIds changed → update targets' dependsOnGoalIds
     if (updates.unlocksGoalIds) {
       for (const oldTargetId of existing.unlocksGoalIds) {
         const target = newGoals.get(oldTargetId);
@@ -226,7 +490,6 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
-    // Sync reverse links: dependsOnGoalIds changed → update sources' unlocksGoalIds
     if (updates.dependsOnGoalIds) {
       for (const oldSourceId of existing.dependsOnGoalIds) {
         const source = newGoals.get(oldSourceId);
@@ -249,6 +512,53 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     set({ goals: newGoals });
+    serverMutation('updateGoal', { entityId: goalId, updates }, set);
+  },
+
+  addGoal: (goal) => {
+    const newGoals = new Map(get().goals);
+    newGoals.set(goal.id, goal);
+
+    // Add to parent's goalIds
+    if (goal.parentType === 'department') {
+      const newDepts = new Map(get().departments);
+      const dept = newDepts.get(goal.parentId);
+      if (dept && !dept.goalIds.includes(goal.id)) {
+        newDepts.set(goal.parentId, { ...dept, goalIds: [...dept.goalIds, goal.id] });
+        set({ goals: newGoals, departments: newDepts });
+        serverMutation('addGoal', { goal }, set);
+        return;
+      }
+    } else if (goal.parentType === 'project') {
+      const newProjects = new Map(get().projects);
+      const proj = newProjects.get(goal.parentId);
+      if (proj && !proj.goalIds.includes(goal.id)) {
+        newProjects.set(goal.parentId, { ...proj, goalIds: [...proj.goalIds, goal.id] });
+        set({ goals: newGoals, projects: newProjects });
+        serverMutation('addGoal', { goal }, set);
+        return;
+      }
+    }
+    set({ goals: newGoals });
+    serverMutation('addGoal', { goal }, set);
+  },
+
+  addMilestone: (milestone) => {
+    const newMilestones = new Map(get().milestones);
+    newMilestones.set(milestone.id, milestone);
+
+    if (milestone.parentType === 'goal') {
+      const newGoals = new Map(get().goals);
+      const goal = newGoals.get(milestone.parentId);
+      if (goal && !goal.milestoneIds.includes(milestone.id)) {
+        newGoals.set(milestone.parentId, { ...goal, milestoneIds: [...goal.milestoneIds, milestone.id] });
+        set({ milestones: newMilestones, goals: newGoals });
+        serverMutation('addMilestone', { milestone }, set);
+        return;
+      }
+    }
+    set({ milestones: newMilestones });
+    serverMutation('addMilestone', { milestone }, set);
   },
 
   addTaskToGoal: (goalId, task) => {
@@ -262,22 +572,20 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     set({ tasks: newTasks, goals: newGoals });
+    serverMutation('addTaskToGoal', { goalId, task }, set);
   },
 
   removeTaskFromGoal: (goalId, taskId) => {
     const newTasks = new Map(get().tasks);
     const newGoals = new Map(get().goals);
 
-    // Remove from goal's taskIds
     const goal = newGoals.get(goalId);
     if (goal) {
       newGoals.set(goalId, { ...goal, taskIds: goal.taskIds.filter((id) => id !== taskId) });
     }
 
-    // Remove all dependency references to this task
     const task = newTasks.get(taskId);
     if (task) {
-      // Clear from parents
       for (const depId of task.dependsOnTaskIds) {
         const parent = newTasks.get(depId);
         if (parent) {
@@ -287,7 +595,6 @@ export const useStore = create<AppState>((set, get) => ({
           });
         }
       }
-      // Clear from children
       for (const childId of task.unlocksTaskIds) {
         const child = newTasks.get(childId);
         if (child) {
@@ -297,10 +604,6 @@ export const useStore = create<AppState>((set, get) => ({
           });
         }
       }
-    }
-
-    // Reset the task's goal and deps (it becomes unplaced)
-    if (task) {
       newTasks.set(taskId, {
         ...task,
         goalId: '',
@@ -312,6 +615,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     set({ tasks: newTasks, goals: newGoals, selectedTaskId: null });
+    serverMutation('removeTaskFromGoal', { goalId, taskId }, set);
   },
 
   getTasksForGoal: (goalId) => {
@@ -368,24 +672,20 @@ export const useStore = create<AppState>((set, get) => ({
       const milestone = milestonesMap.get(id);
 
       if (task) {
-        if (direction === 'up' || direction === 'down') {
-          // Upstream
-          if (direction === 'up') {
-            for (const depId of task.dependsOnTaskIds) {
-              if (!related.has(depId)) { related.add(depId); traverse(depId, 'up'); }
-            }
-            for (const msId of task.dependsOnMilestoneIds) {
-              if (!related.has(msId)) { related.add(msId); traverse(msId, 'up'); }
-            }
+        if (direction === 'up') {
+          for (const depId of task.dependsOnTaskIds) {
+            if (!related.has(depId)) { related.add(depId); traverse(depId, 'up'); }
           }
-          // Downstream
-          if (direction === 'down') {
-            for (const childId of task.unlocksTaskIds) {
-              if (!related.has(childId)) { related.add(childId); traverse(childId, 'down'); }
-            }
-            for (const msId of task.unlocksMilestoneIds) {
-              if (!related.has(msId)) { related.add(msId); traverse(msId, 'down'); }
-            }
+          for (const msId of task.dependsOnMilestoneIds) {
+            if (!related.has(msId)) { related.add(msId); traverse(msId, 'up'); }
+          }
+        }
+        if (direction === 'down') {
+          for (const childId of task.unlocksTaskIds) {
+            if (!related.has(childId)) { related.add(childId); traverse(childId, 'down'); }
+          }
+          for (const msId of task.unlocksMilestoneIds) {
+            if (!related.has(msId)) { related.add(msId); traverse(msId, 'down'); }
           }
         }
       }

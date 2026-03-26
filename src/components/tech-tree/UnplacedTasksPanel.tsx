@@ -15,9 +15,7 @@ export function UnplacedTasksPanel({ goalId, onClose }: UnplacedTasksPanelProps)
   const setSelectedTask = useStore((s) => s.setSelectedTask);
 
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState<'placed' | 'unplaced' | 'new'>('placed');
-  const [newName, setNewName] = useState('');
-  const [newTicketId, setNewTicketId] = useState('');
+  const [tab, setTab] = useState<'placed' | 'unplaced'>('placed');
 
   const placedTasks = getTasksForGoal(goalId);
   const unplacedTasks = getUnplacedTasks(goalId);
@@ -37,33 +35,6 @@ export function UnplacedTasksPanel({ goalId, onClose }: UnplacedTasksPanelProps)
 
   const handleRemoveFromGoal = (taskId: string) => {
     removeTaskFromGoal(goalId, taskId);
-  };
-
-  const handleCreateNew = () => {
-    if (!newName.trim()) return;
-    const id = `task-${Date.now()}`;
-    const newTask: Task = {
-      id,
-      goalId,
-      name: newName.trim(),
-      description: '',
-      status: 'available',
-      ticketId: newTicketId.trim() || undefined,
-      contributingDepartmentId: 'dept-pipeline',
-      baseDurationDays: 5,
-      requiredSkills: [],
-      requiredTools: [],
-      dependsOnTaskIds: [],
-      dependsOnMilestoneIds: [],
-      unlocksTaskIds: [],
-      unlocksMilestoneIds: [],
-      assignedWorkerIds: [],
-      parallelizationFactor: 0.7,
-    };
-    addTaskToGoal(goalId, newTask);
-    setNewName('');
-    setNewTicketId('');
-    setTab('placed');
   };
 
   return (
@@ -89,7 +60,7 @@ export function UnplacedTasksPanel({ goalId, onClose }: UnplacedTasksPanelProps)
 
       {/* Tabs */}
       <div style={{ display: 'flex', padding: '8px 12px', gap: 4 }}>
-        {(['placed', 'unplaced', 'new'] as const).map((t) => (
+        {(['placed', 'unplaced'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -105,13 +76,13 @@ export function UnplacedTasksPanel({ goalId, onClose }: UnplacedTasksPanelProps)
               textTransform: 'capitalize',
             }}
           >
-            {t === 'new' ? '+ New' : t} {t === 'placed' ? `(${placedTasks.length})` : t === 'unplaced' ? `(${unplacedTasks.length})` : ''}
+            {t} ({t === 'placed' ? placedTasks.length : unplacedTasks.length})
           </button>
         ))}
       </div>
 
       {/* Search */}
-      {tab !== 'new' && (
+      {(
         <div style={{ padding: '0 12px 8px' }}>
           <input
             type="text"
@@ -166,42 +137,6 @@ export function UnplacedTasksPanel({ goalId, onClose }: UnplacedTasksPanelProps)
             No unplaced tickets found
           </div>
         )}
-
-        {tab === 'new' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input
-              type="text"
-              placeholder="Task name *"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              style={inputStyle}
-              autoFocus
-            />
-            <input
-              type="text"
-              placeholder="Ticket ID (optional)"
-              value={newTicketId}
-              onChange={(e) => setNewTicketId(e.target.value)}
-              style={inputStyle}
-            />
-            <button
-              onClick={handleCreateNew}
-              disabled={!newName.trim()}
-              style={{
-                padding: '8px',
-                borderRadius: 6,
-                border: 'none',
-                backgroundColor: newName.trim() ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
-                color: newName.trim() ? 'var(--color-bg-primary)' : 'var(--color-text-muted)',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: newName.trim() ? 'pointer' : 'default',
-              }}
-            >
-              Create & Add to Goal
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -228,13 +163,3 @@ const tinyButtonStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 10px',
-  borderRadius: 5,
-  border: '1px solid var(--color-border)',
-  backgroundColor: 'var(--color-bg-tertiary)',
-  color: 'var(--color-text-primary)',
-  fontSize: 12,
-  outline: 'none',
-};

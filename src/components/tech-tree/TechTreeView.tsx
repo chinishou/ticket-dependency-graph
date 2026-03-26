@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useEffect } from 'react';
+import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -17,6 +17,7 @@ import '@xyflow/react/dist/style.css';
 import { useStore } from '../../store/useStore';
 import { buildGraphLayout, type GraphNodeData } from '../../utils/graphLayout';
 import { getEtaDays } from '../../types';
+import type { Milestone } from '../../types';
 import { TaskNode } from './TaskNode';
 import { MilestoneNode } from './MilestoneNode';
 import { TaskDetailPanel } from '../shared/TaskDetailPanel';
@@ -46,11 +47,59 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
   const setFocusedNode = useStore((s) => s.setFocusedNode);
   const updateTask = useStore((s) => s.updateTask);
   const updateMilestone = useStore((s) => s.updateMilestone);
+  const addMilestone = useStore((s) => s.addMilestone);
+  const userName = useStore((s) => s.userName);
+  const heartbeat = useStore((s) => s.heartbeatPresence);
+  const leave = useStore((s) => s.leavePresence);
+  const getOtherViewers = useStore((s) => s.getOtherViewers);
 
   const [showUnplaced, setShowUnplaced] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editNodes, setEditNodes] = useState<Node<GraphNodeData>[]>([]);
   const [editEdges, setEditEdges] = useState<Edge[]>([]);
+
+  // Auto-register presence when viewing this goal
+  const presenceScope = `goal:${goalId}`;
+  useEffect(() => {
+    if (!userName) return;
+    heartbeat(presenceScope);
+    const interval = setInterval(() => heartbeat(presenceScope), 60 * 1000);
+    return () => {
+      clearInterval(interval);
+      leave(presenceScope);
+    };
+  }, [userName, presenceScope, heartbeat, leave]);
+
+  const otherViewers = getOtherViewers(presenceScope);
+
+  // Create milestone form
+  const [showCreateMilestone, setShowCreateMilestone] = useState(false);
+  const [newMilestoneName, setNewMilestoneName] = useState('');
+  const createMsInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showCreateMilestone) createMsInputRef.current?.focus();
+  }, [showCreateMilestone]);
+
+  const handleCreateMilestone = useCallback(() => {
+    if (!newMilestoneName.trim()) return;
+    const ms: Milestone = {
+      id: `ms-${Date.now()}`,
+      name: newMilestoneName.trim(),
+      description: '',
+      type: 'capability',
+      parentType: 'goal',
+      parentId: goalId,
+      requiredTaskIds: [],
+      requiredMilestoneIds: [],
+      unlocksTaskIds: [],
+      unlocksMilestoneIds: [],
+      unlocked: false,
+    };
+    addMilestone(ms);
+    setNewMilestoneName('');
+    setShowCreateMilestone(false);
+  }, [newMilestoneName, goalId, addMilestone]);
 
   const goalTasks = useMemo(() => getTasksForGoal(goalId), [getTasksForGoal, goalId, tasksMap]);
   const goalMilestones = useMemo(() => getMilestonesForGoal(goalId), [getMilestonesForGoal, goalId, milestonesMap]);
@@ -259,22 +308,90 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
             color: showUnplaced ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
           }}
         >
-          📋 Tickets
+          Tickets
         </button>
         <button
           onClick={toggleEditMode}
+          title={editMode ? 'Exit edit mode' : 'Enter edit mode'}
           style={{
             ...toolbarButtonStyle,
             backgroundColor: editMode ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
             color: editMode ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
           }}
         >
-          {editMode ? '🔓 Editing' : '🔒 Locked'}
+          {editMode ? 'Editing' : 'Edit'}
         </button>
         {editMode && (
-          <button onClick={applyAutoLayout} style={toolbarButtonStyle}>⟳ Auto Layout</button>
+          <button onClick={applyAutoLayout} style={toolbarButtonStyle}>Auto Layout</button>
         )}
+        <button
+          onClick={() => setShowCreateMilestone(!showCreateMilestone)}
+          style={{
+            ...toolbarButtonStyle,
+            backgroundColor: showCreateMilestone ? '#f59e0b' : 'var(--color-bg-secondary)',
+            color: showCreateMilestone ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
+          }}
+        >
+          + Milestone
+        </button>
       </div>
+
+      {/* Create milestone form */}
+      {showCreateMilestone && (
+        <div style={{
+          position: 'absolute', top: 48, left: 12, width: 260, zIndex: 6,
+          backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)',
+          borderRadius: 8, padding: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>New Milestone</div>
+          <input
+            ref={createMsInputRef}
+            type="text"
+            placeholder="Milestone name..."
+            value={newMilestoneName}
+            onChange={(e) => setNewMilestoneName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleCreateMilestone()}
+            style={{
+              width: '100%', padding: '6px 8px', borderRadius: 5,
+              border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-tertiary)',
+              color: 'var(--color-text-primary)', fontSize: 12, outline: 'none', marginBottom: 8,
+            }}
+          />
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => { setShowCreateMilestone(false); setNewMilestoneName(''); }}
+              style={{ ...toolbarButtonStyle, fontSize: 11 }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreateMilestone}
+              disabled={!newMilestoneName.trim()}
+              style={{
+                ...toolbarButtonStyle, fontSize: 11,
+                backgroundColor: newMilestoneName.trim() ? '#f59e0b' : 'var(--color-bg-tertiary)',
+                color: newMilestoneName.trim() ? 'var(--color-bg-primary)' : 'var(--color-text-muted)',
+                border: 'none',
+              }}
+            >
+              Create
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Presence banner — show other viewers */}
+      {otherViewers.length > 0 && (
+        <div style={{
+          position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+          padding: '6px 16px', borderRadius: 6,
+          backgroundColor: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.25)',
+          color: '#38bdf8', fontSize: 12, zIndex: 5, pointerEvents: 'none',
+          whiteSpace: 'nowrap',
+        }}>
+          {otherViewers.join(', ')} {otherViewers.length === 1 ? 'is' : 'are'} also viewing this tree
+        </div>
+      )}
 
       {editMode && (
         <div style={{
