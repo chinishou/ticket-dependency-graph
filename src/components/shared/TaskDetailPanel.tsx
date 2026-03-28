@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useStore } from '../../store/useStore';
 import { getStatusColor, getStatusLabel, getEtaDays } from '../../types';
+import { computeTaskPriorities, getPriorityLabel, getPriorityColor } from '../../utils/priorityCalc';
 
 function CollapsibleDescription({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -130,8 +131,15 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
   const getTasksForGoal = useStore((s) => s.getTasksForGoal);
   const getMilestonesForGoal = useStore((s) => s.getMilestonesForGoal);
 
+  const goalsMap = useStore((s) => s.goals);
+
   const goalTasks = getTasksForGoal(goalId);
   const goalMilestones = getMilestonesForGoal(goalId);
+
+  const priorities = useMemo(
+    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap }),
+    [tasksMap, milestonesMap, goalsMap],
+  );
 
   // All tasks and milestones available for linking
   const allTaskOptions = goalTasks.map((t) => ({ id: t.id, name: t.name }));
@@ -292,6 +300,22 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
           <span>{etaDays} days ({workerCount} worker{workerCount !== 1 ? 's' : ''})</span>
         </div>
       )}
+      {task.status !== 'completed' && priorities.get(task.id) && (() => {
+        const pri = priorities.get(task.id)!;
+        return (
+          <div style={metaRowStyle}>
+            <span style={{ color: 'var(--color-text-muted)' }}>Priority</span>
+            <span style={{
+              padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+              backgroundColor: `${getPriorityColor(pri.score)}20`,
+              color: getPriorityColor(pri.score),
+            }}>
+              {getPriorityLabel(pri.score)} ({pri.score})
+              {pri.criticalPath && ' ⚡'}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Workers */}
       {assignedWorkers.length > 0 && (

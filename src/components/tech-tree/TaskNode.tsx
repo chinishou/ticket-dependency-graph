@@ -3,9 +3,10 @@ import { Handle, Position } from '@xyflow/react';
 import type { NodeProps } from '@xyflow/react';
 import type { TaskNodeData } from '../../utils/graphLayout';
 import { getStatusColor, getStatusGlow, getStatusLabel } from '../../types';
+import { getPriorityColor, getPriorityLabel } from '../../utils/priorityCalc';
 
 function TaskNodeComponent({ data, selected }: NodeProps & { data: TaskNodeData }) {
-  const { task, workerCount, etaDays, dimmed } = data;
+  const { task, workerCount, etaDays, priorityScore, dimmed } = data;
   const statusColor = getStatusColor(task.status);
   const statusGlow = getStatusGlow(task.status);
   const statusLabel = getStatusLabel(task.status);
@@ -86,6 +87,22 @@ function TaskNodeComponent({ data, selected }: NodeProps & { data: TaskNodeData 
           )}
           {!isDone && (
             <span title="Estimated days">{etaDays}d</span>
+          )}
+          {priorityScore != null && !isDone && (
+            <span
+              title={`Priority: ${getPriorityLabel(priorityScore)} (${priorityScore})`}
+              style={{
+                marginLeft: 'auto',
+                padding: '1px 6px',
+                borderRadius: 8,
+                fontSize: 9,
+                fontWeight: 600,
+                backgroundColor: `${getPriorityColor(priorityScore)}25`,
+                color: getPriorityColor(priorityScore),
+              }}
+            >
+              {getPriorityLabel(priorityScore)}
+            </span>
           )}
         </div>
       </div>

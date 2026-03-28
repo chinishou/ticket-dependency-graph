@@ -7,6 +7,7 @@ export interface TaskNodeData {
   task: Task;
   workerCount: number;
   etaDays: number;
+  priorityScore?: number;
   dimmed?: boolean;
   [key: string]: unknown;
 }
@@ -32,6 +33,7 @@ export function buildGraphLayout(
   getWorkerCount: (taskId: string) => number,
   getEtaDays: (task: Task, workerCount: number) => number,
   focusedNodeIds?: Set<string> | null,
+  priorityScores?: Map<string, number>,
 ): { nodes: Node<GraphNodeData>[]; edges: Edge[] } {
   const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
 
@@ -245,6 +247,7 @@ export function buildGraphLayout(
         task,
         workerCount: wc,
         etaDays: getEtaDays(task, wc),
+        priorityScore: priorityScores?.get(task.id),
         dimmed,
       },
       hidden: false,

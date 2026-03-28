@@ -18,6 +18,7 @@ import { useStore } from '../../store/useStore';
 import { buildGraphLayout, type GraphNodeData } from '../../utils/graphLayout';
 import { getEtaDays } from '../../types';
 import type { Milestone } from '../../types';
+import { computeTaskPriorities } from '../../utils/priorityCalc';
 import { TaskNode } from './TaskNode';
 import { MilestoneNode } from './MilestoneNode';
 import { TaskDetailPanel } from '../shared/TaskDetailPanel';
@@ -37,6 +38,7 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
   const getMilestonesForGoal = useStore((s) => s.getMilestonesForGoal);
   const tasksMap = useStore((s) => s.tasks);
   const milestonesMap = useStore((s) => s.milestones);
+  const goalsMap = useStore((s) => s.goals);
   const workersMap = useStore((s) => s.workers);
   const setSelectedTask = useStore((s) => s.setSelectedTask);
   const setSelectedMilestone = useStore((s) => s.setSelectedMilestone);
@@ -118,9 +120,16 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
     return getRelatedNodeIds(focusedNodeId);
   }, [focusedNodeId, getRelatedNodeIds]);
 
+  const priorityScores = useMemo(() => {
+    const priorities = computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap });
+    const scores = new Map<string, number>();
+    for (const [id, p] of priorities) scores.set(id, p.score);
+    return scores;
+  }, [tasksMap, milestonesMap, goalsMap]);
+
   const { nodes: layoutNodes, edges: layoutEdges } = useMemo(() => {
-    return buildGraphLayout(goalTasks, goalMilestones, getWorkerCount, getEtaDays, focusedNodeIds);
-  }, [goalTasks, goalMilestones, getWorkerCount, focusedNodeIds]);
+    return buildGraphLayout(goalTasks, goalMilestones, getWorkerCount, getEtaDays, focusedNodeIds, priorityScores);
+  }, [goalTasks, goalMilestones, getWorkerCount, focusedNodeIds, priorityScores]);
 
   const displayNodes = useMemo(
     () => layoutNodes.map((n) => ({
