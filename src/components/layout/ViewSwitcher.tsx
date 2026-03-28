@@ -22,40 +22,39 @@ export function ViewSwitcher({ activeView, onSwitch, style }: ViewSwitcherProps)
         ...style,
       }}
     >
-      {views.map(({ key, label }) => {
+      {views.map(({ key, label }, i) => {
         const isActive = activeView === key;
-        const isDisabled = false;
         return (
           <button
             key={key}
-            onClick={() => !isDisabled && onSwitch(key)}
-            disabled={isDisabled}
+            onClick={() => onSwitch(key)}
             style={{
               padding: '5px 14px',
               fontSize: 12,
               fontWeight: isActive ? 600 : 400,
-              color: isDisabled
-                ? 'var(--color-text-muted)'
-                : isActive
-                  ? 'var(--color-text-primary)'
-                  : 'var(--color-text-secondary)',
+              color: isActive
+                ? 'var(--color-accent)'
+                : 'var(--color-text-secondary)',
               backgroundColor: isActive
-                ? 'var(--color-bg-tertiary)'
+                ? 'rgba(56, 189, 248, 0.08)'
                 : 'transparent',
               border: 'none',
-              borderRight: '1px solid var(--color-border)',
-              cursor: isDisabled ? 'not-allowed' : 'pointer',
-              opacity: isDisabled ? 0.5 : 1,
-              transition: 'background-color 0.15s, color 0.15s',
+              borderRight: i < views.length - 1 ? '1px solid var(--color-border)' : 'none',
+              borderBottom: isActive ? '2px solid var(--color-accent)' : '2px solid transparent',
+              cursor: 'pointer',
+              transition: 'background-color 0.15s, color 0.15s, border-color 0.15s',
+              position: 'relative',
             }}
             onMouseEnter={(e) => {
-              if (!isActive && !isDisabled) {
+              if (!isActive) {
                 e.currentTarget.style.backgroundColor = 'var(--color-bg-secondary)';
+                e.currentTarget.style.color = 'var(--color-text-primary)';
               }
             }}
             onMouseLeave={(e) => {
-              if (!isActive && !isDisabled) {
+              if (!isActive) {
                 e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = 'var(--color-text-secondary)';
               }
             }}
           >

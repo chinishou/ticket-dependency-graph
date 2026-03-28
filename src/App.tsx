@@ -190,46 +190,60 @@ function App() {
     >
       {/* View A: Tech Tree */}
       {topView === 'A' && subViewA === 'goal-map' && goal && parent && (
-        <GoalMapView
-          parentType={goal.parentType}
-          parentId={goal.parentId}
-          onSelectGoal={handleGoalMapSelect}
-        />
+        <div key="goal-map" className="view-enter" style={{ width: '100%', height: '100%' }}>
+          <GoalMapView
+            parentType={goal.parentType}
+            parentId={goal.parentId}
+            onSelectGoal={handleGoalMapSelect}
+          />
+        </div>
       )}
       {topView === 'A' && subViewA === 'tech-tree' && (
-        <TechTreeView goalId={selectedGoalId} />
+        <div key={`tree-${selectedGoalId}`} className="view-enter" style={{ width: '100%', height: '100%' }}>
+          <TechTreeView goalId={selectedGoalId} />
+        </div>
       )}
 
       {/* View B: Dashboard */}
       {topView === 'B' && subViewB === 'company' && (
-        <CompanyDashboard
-          onSelectProject={handleSelectProject}
-          onSelectDepartment={handleSelectDepartment}
-        />
+        <div key="company" className="view-enter" style={{ width: '100%', height: '100%' }}>
+          <CompanyDashboard
+            onSelectProject={handleSelectProject}
+            onSelectDepartment={handleSelectDepartment}
+          />
+        </div>
       )}
       {topView === 'B' && subViewB === 'project' && selectedProjectId && (
-        <ProjectDashboard
-          projectId={selectedProjectId}
-          onSelectGoal={handleDashboardGoalSelect}
-          onBack={handleBackToCompany}
-        />
+        <div key={`proj-${selectedProjectId}`} className="view-enter" style={{ width: '100%', height: '100%' }}>
+          <ProjectDashboard
+            projectId={selectedProjectId}
+            onSelectGoal={handleDashboardGoalSelect}
+            onBack={handleBackToCompany}
+          />
+        </div>
       )}
       {topView === 'B' && subViewB === 'department' && selectedDeptId && (
-        <DeptDashboard
-          departmentId={selectedDeptId}
-          onSelectGoal={handleDashboardGoalSelect}
-          onBack={handleBackToCompany}
-        />
+        <div key={`dept-${selectedDeptId}`} className="view-enter" style={{ width: '100%', height: '100%' }}>
+          <DeptDashboard
+            departmentId={selectedDeptId}
+            onSelectGoal={handleDashboardGoalSelect}
+            onBack={handleBackToCompany}
+          />
+        </div>
       )}
 
       {/* View C: Timeline */}
       {topView === 'C' && (
-        <TimelineView onSelectGoal={handleGoalChange} />
+        <div key="timeline" className="view-enter" style={{ width: '100%', height: '100%' }}>
+          <TimelineView onSelectGoal={handleGoalChange} />
+        </div>
       )}
 
       {/* View D: Workers */}
       {topView === 'D' && (
-        <WorkerView onSelectGoal={handleGoalChange} />
+        <div key="workers" className="view-enter" style={{ width: '100%', height: '100%' }}>
+          <WorkerView onSelectGoal={handleGoalChange} />
+        </div>
       )}
     </AppShell>
   );
