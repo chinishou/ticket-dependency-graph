@@ -68,8 +68,6 @@ export interface Task {
   ticketUrl?: string;
   contributingDepartmentId: string;
   baseDurationDays: number;
-  requiredSkills: string[];
-  requiredTools: string[];
   dependsOnTaskIds: string[];
   dependsOnMilestoneIds: string[];
   unlocksTaskIds: string[];
@@ -101,8 +99,7 @@ export interface Worker {
   id: string;
   name: string;
   departmentId: string;
-  skills: string[];
-  activeTaskId: string | null;
+  activeTaskIds: string[];
   assignedTaskIds: string[];
   availability: WorkerAvailability;
 }

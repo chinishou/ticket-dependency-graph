@@ -308,7 +308,7 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
                 {w.name.split(' ').map((n) => n[0]).join('')}
               </div>
               <span>{w.name}</span>
-              {w.activeTaskId === task.id && (
+              {w.activeTaskIds.includes(task.id) && (
                 <span style={{ fontSize: 9, color: 'var(--color-in-progress)', marginLeft: 'auto' }}>● Active</span>
               )}
             </div>

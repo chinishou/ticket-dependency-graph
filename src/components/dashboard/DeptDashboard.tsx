@@ -38,12 +38,12 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
       .map((id) => workers.get(id))
       .filter(Boolean)
       .map((w) => {
-        const activeTask = w!.activeTaskId ? tasks.get(w!.activeTaskId) : null;
+        const firstActiveTask = w!.activeTaskIds.length > 0 ? tasks.get(w!.activeTaskIds[0]) : null;
         return {
           id: w!.id,
           name: w!.name,
-          isActive: w!.activeTaskId !== null,
-          activeTaskName: activeTask?.name ?? null,
+          isActive: w!.activeTaskIds.length > 0,
+          activeTaskName: firstActiveTask?.name ?? null,
           availability: w!.availability,
         };
       });

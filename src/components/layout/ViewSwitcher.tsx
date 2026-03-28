@@ -1,13 +1,14 @@
 interface ViewSwitcherProps {
-  activeView: 'A' | 'B' | 'C';
-  onSwitch: (view: 'A' | 'B' | 'C') => void;
+  activeView: 'A' | 'B' | 'C' | 'D';
+  onSwitch: (view: 'A' | 'B' | 'C' | 'D') => void;
   style?: React.CSSProperties;
 }
 
-const views: { key: 'A' | 'B' | 'C'; label: string }[] = [
+const views: { key: 'A' | 'B' | 'C' | 'D'; label: string }[] = [
   { key: 'A', label: 'Tech Tree' },
   { key: 'B', label: 'Dashboard' },
   { key: 'C', label: 'Timeline' },
+  { key: 'D', label: 'Workers' },
 ];
 
 export function ViewSwitcher({ activeView, onSwitch, style }: ViewSwitcherProps) {
@@ -23,7 +24,7 @@ export function ViewSwitcher({ activeView, onSwitch, style }: ViewSwitcherProps)
     >
       {views.map(({ key, label }) => {
         const isActive = activeView === key;
-        const isDisabled = key === 'C'; // Timeline not implemented yet
+        const isDisabled = false;
         return (
           <button
             key={key}

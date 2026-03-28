@@ -69,7 +69,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
           if (task.status === 'paused') pausedTasks++;
           for (const wId of task.assignedWorkerIds) {
             const worker = workers.get(wId);
-            if (worker && worker.activeTaskId !== null) {
+            if (worker && worker.activeTaskIds.length > 0) {
               activeWorkerIds.add(wId);
             }
           }
@@ -147,7 +147,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         const worker = workers.get(wId);
         if (!worker) continue;
         deptWorkers.push(worker);
-        if (worker.activeTaskId !== null) activeWorkers++;
+        if (worker.activeTaskIds.length > 0) activeWorkers++;
       }
 
       let totalMilestones = 0;

@@ -7,12 +7,14 @@ import { GoalMapView } from './components/tech-tree/GoalMapView';
 import { CompanyDashboard } from './components/dashboard/CompanyDashboard';
 import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
 import { DeptDashboard } from './components/dashboard/DeptDashboard';
+import { TimelineView } from './components/timeline/TimelineView';
+import { WorkerView } from './components/worker/WorkerView';
 import { useStore } from './store/useStore';
 
 // View A = Tech Tree (goal-map or tech-tree sub-views)
 // View B = Dashboard (company, project, or department)
 // View C = Timeline (future)
-type TopView = 'A' | 'B' | 'C';
+type TopView = 'A' | 'B' | 'C' | 'D';
 type SubViewA = 'goal-map' | 'tech-tree';
 type SubViewB = 'company' | 'project' | 'department';
 
@@ -101,7 +103,7 @@ function App() {
   }, [clearSelection]);
 
   // --- View switching ---
-  const handleViewSwitch = useCallback((view: 'A' | 'B' | 'C') => {
+  const handleViewSwitch = useCallback((view: 'A' | 'B' | 'C' | 'D') => {
     setTopView(view);
   }, []);
 
@@ -142,6 +144,14 @@ function App() {
           ...(dept ? [{ label: dept.name }] : []),
         ];
       }
+    }
+
+    if (topView === 'C') {
+      return [{ label: company.name }, { label: 'Timeline' }];
+    }
+
+    if (topView === 'D') {
+      return [{ label: company.name }, { label: 'Workers' }];
     }
 
     return [{ label: company.name }];
@@ -212,18 +222,14 @@ function App() {
         />
       )}
 
-      {/* View C: Timeline (placeholder) */}
+      {/* View C: Timeline */}
       {topView === 'C' && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100%',
-          color: 'var(--color-text-muted)',
-          fontSize: 18,
-        }}>
-          Timeline view coming in Phase 3
-        </div>
+        <TimelineView onSelectGoal={handleGoalChange} />
+      )}
+
+      {/* View D: Workers */}
+      {topView === 'D' && (
+        <WorkerView onSelectGoal={handleGoalChange} />
       )}
     </AppShell>
   );
