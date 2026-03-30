@@ -128,6 +128,8 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
   const updateTask = useStore((s) => s.updateTask);
   const updateMilestone = useStore((s) => s.updateMilestone);
   const removeTaskFromGoal = useStore((s) => s.removeTaskFromGoal);
+  const overridePriority = useStore((s) => s.overridePriority);
+  const liftPriorityOverride = useStore((s) => s.liftPriorityOverride);
   const getTasksForGoal = useStore((s) => s.getTasksForGoal);
   const getMilestonesForGoal = useStore((s) => s.getMilestonesForGoal);
 
@@ -137,8 +139,8 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
   const goalMilestones = getMilestonesForGoal(goalId);
 
   const priorities = useMemo(
-    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap }),
-    [tasksMap, milestonesMap, goalsMap],
+    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap }),
+    [tasksMap, milestonesMap, goalsMap, departmentsMap],
   );
 
   // All tasks and milestones available for linking
@@ -302,18 +304,83 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
       )}
       {task.status !== 'completed' && priorities.get(task.id) && (() => {
         const pri = priorities.get(task.id)!;
+        const isOverridden = task.priorityOverride != null;
         return (
-          <div style={metaRowStyle}>
-            <span style={{ color: 'var(--color-text-muted)' }}>Priority</span>
-            <span style={{
-              padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-              backgroundColor: `${getPriorityColor(pri.score)}20`,
-              color: getPriorityColor(pri.score),
-            }}>
-              {getPriorityLabel(pri.score)} ({pri.score})
-              {pri.criticalPath && ' ⚡'}
-            </span>
-          </div>
+          <>
+            <div style={metaRowStyle}>
+              <span style={{ color: 'var(--color-text-muted)' }}>Priority</span>
+              <span style={{
+                padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                backgroundColor: `${getPriorityColor(pri.score)}20`,
+                color: getPriorityColor(pri.score),
+              }}>
+                {isOverridden && '\u{1F4CC} '}
+                {getPriorityLabel(pri.score)} ({pri.score})
+                {pri.criticalPath && ' \u26A1'}
+              </span>
+            </div>
+            {isOverridden && (
+              <div style={{ ...metaRowStyle, fontSize: 11 }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Computed</span>
+                <span style={{ color: 'var(--color-text-muted)' }}>
+                  {pri.computedScore} (drift: {pri.score - pri.computedScore > 0 ? '+' : ''}{pri.score - pri.computedScore})
+                </span>
+              </div>
+            )}
+            <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, display: 'flex', gap: 8 }}>
+              <span style={{ color: '#ef4444' }}>Proj:{Math.round(pri.projectFactor * 0.25)}</span>
+              <span style={{ color: '#f59e0b' }}>Dept:{Math.round(pri.deptFactor * 0.20)}</span>
+              <span style={{ color: '#22c55e' }}>Goal:{Math.round(pri.goalFactor * 0.15)}</span>
+              <span style={{ color: '#8b5cf6' }}>Cr:{Math.round(pri.creatorFactor * 0.10)}</span>
+              <span style={{ color: '#38bdf8' }}>GF:{Math.round(pri.graphFactor * 0.30)}</span>
+            </div>
+
+            {/* Override — direct number input */}
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              {!isOverridden ? (
+                <>
+                  <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>Override:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    placeholder={String(pri.computedScore)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const val = parseInt((e.target as HTMLInputElement).value);
+                        if (!isNaN(val) && val >= 0 && val <= 100) {
+                          overridePriority(task.id, val, 'Manual override');
+                          (e.target as HTMLInputElement).value = '';
+                        }
+                      }
+                    }}
+                    style={{
+                      width: 52, fontSize: 11, padding: '3px 6px', borderRadius: 4,
+                      border: '1px solid var(--color-border)',
+                      backgroundColor: 'var(--color-bg-tertiary)',
+                      color: 'var(--color-text-primary)',
+                      textAlign: 'center',
+                    }}
+                  />
+                  <span style={{ fontSize: 9, color: 'var(--color-text-muted)' }}>Enter to set</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>Overridden to {pri.score}</span>
+                  <button
+                    onClick={() => liftPriorityOverride(task.id)}
+                    style={{
+                      fontSize: 10, padding: '2px 8px', borderRadius: 4,
+                      border: '1px solid rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                      color: '#ef4444', cursor: 'pointer',
+                    }}
+                  >
+                    Lift
+                  </button>
+                </>
+              )}
+            </div>
+          </>
         );
       })()}
 

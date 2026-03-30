@@ -1,8 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../../store/useStore';
 import { ProgressBar } from '../shared/ProgressBar';
-import { PriorityBadge } from '../shared/PriorityBadge';
-import type { Project, Department, Worker } from '../../types';
+import type { Project, Department, Worker, StrategicPriority } from '../../types';
 
 interface CompanyDashboardProps {
   onSelectProject: (projectId: string) => void;
@@ -20,6 +19,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const tasks = useStore((s) => s.tasks);
   const milestones = useStore((s) => s.milestones);
   const workers = useStore((s) => s.workers);
+  const updateProject = useStore((s) => s.updateProject);
+  const updateDepartment = useStore((s) => s.updateDepartment);
 
   // Hover state for cards
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
@@ -272,10 +273,23 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                   >
                     <div style={cardHeaderStyle}>
                       <div style={cardTitleStyle}>{project.name}</div>
-                      <PriorityBadge
-                        priority={project.strategicPriority}
-                        size="sm"
-                      />
+                      <div style={{ display: 'flex', gap: 3 }}>
+                        {(['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => (
+                          <button
+                            key={p}
+                            onClick={(e) => { e.stopPropagation(); updateProject(project.id, { strategicPriority: p }); }}
+                            style={{
+                              fontSize: 10, padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
+                              border: project.strategicPriority === p ? '1px solid #ef4444' : '1px solid var(--color-border)',
+                              backgroundColor: project.strategicPriority === p ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
+                              color: project.strategicPriority === p ? '#ef4444' : 'var(--color-text-muted)',
+                              fontWeight: project.strategicPriority === p ? 700 : 400,
+                            }}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     <div style={{ marginTop: 12 }}>
@@ -347,7 +361,26 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                     }
                     onMouseLeave={() => setHoveredCard(null)}
                   >
-                    <div style={cardTitleStyle}>{department.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <div style={cardTitleStyle}>{department.name}</div>
+                      <div style={{ display: 'flex', gap: 3 }}>
+                        {(['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => (
+                          <button
+                            key={p}
+                            onClick={(e) => { e.stopPropagation(); updateDepartment(department.id, { priority: p }); }}
+                            style={{
+                              fontSize: 10, padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
+                              border: department.priority === p ? '1px solid #f59e0b' : '1px solid var(--color-border)',
+                              backgroundColor: department.priority === p ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+                              color: department.priority === p ? '#f59e0b' : 'var(--color-text-muted)',
+                              fontWeight: department.priority === p ? 700 : 400,
+                            }}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <div style={deptHeadStyle}>{department.headName}</div>
 
                     <div style={{ marginTop: 10 }}>

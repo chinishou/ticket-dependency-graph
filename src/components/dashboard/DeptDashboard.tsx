@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useStore } from '../../store/useStore';
 import { ProgressBar } from '../shared/ProgressBar';
+import type { StrategicPriority } from '../../types';
 
 interface DeptDashboardProps {
   departmentId: string;
@@ -14,6 +15,8 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
   onBack,
 }) => {
   const department = useStore((s) => s.departments.get(departmentId));
+  const updateDepartment = useStore((s) => s.updateDepartment);
+  const updateGoal = useStore((s) => s.updateGoal);
   const projects = useStore((s) => s.projects);
   const tasks = useStore((s) => s.tasks);
   const workers = useStore((s) => s.workers);
@@ -135,7 +138,26 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
       <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
           <div>
-            <h1 style={titleStyle}>{department.name}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <h1 style={titleStyle}>{department.name}</h1>
+              <div style={{ display: 'flex', gap: 3 }}>
+                {(['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => updateDepartment(departmentId, { priority: p })}
+                    style={{
+                      fontSize: 12, padding: '3px 10px', borderRadius: 6, cursor: 'pointer',
+                      border: department.priority === p ? '1px solid #f59e0b' : '1px solid var(--color-border)',
+                      backgroundColor: department.priority === p ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+                      color: department.priority === p ? '#f59e0b' : 'var(--color-text-muted)',
+                      fontWeight: department.priority === p ? 700 : 400,
+                    }}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 4 }}>
               Head: {department.headName}
             </div>
@@ -179,7 +201,24 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
               {goalCards.map((goal) => (
                 <div key={goal.id} style={goalCardStyle}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                    <div style={priorityNumStyle}>{goal.priority}</div>
+                    <div style={{ display: 'flex', gap: 2 }}>
+                      {[1, 2, 3].map((dp) => (
+                        <button
+                          key={dp}
+                          onClick={(e) => { e.stopPropagation(); updateGoal(goal.id, { departmentPriority: dp }); }}
+                          style={{
+                            width: 24, height: 24, borderRadius: 4,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 11, fontWeight: goal.priority === dp ? 700 : 400, cursor: 'pointer',
+                            border: goal.priority === dp ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                            backgroundColor: goal.priority === dp ? 'rgba(56, 189, 248, 0.12)' : 'transparent',
+                            color: goal.priority === dp ? 'var(--color-accent)' : 'var(--color-text-muted)',
+                          }}
+                        >
+                          {dp}
+                        </button>
+                      ))}
+                    </div>
                     <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {goal.name}
                     </span>
@@ -328,21 +367,6 @@ const goalCardStyle: React.CSSProperties = {
   backgroundColor: 'var(--color-bg-tertiary)',
   borderRadius: 8,
   padding: '14px 16px',
-};
-
-const priorityNumStyle: React.CSSProperties = {
-  width: 26,
-  height: 26,
-  borderRadius: 6,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  backgroundColor: 'var(--color-bg-secondary)',
-  border: '1px solid var(--color-border)',
-  fontSize: 12,
-  fontWeight: 700,
-  color: 'var(--color-accent)',
-  flexShrink: 0,
 };
 
 const metaLabelStyle: React.CSSProperties = {

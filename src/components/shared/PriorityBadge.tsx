@@ -13,7 +13,6 @@ const priorityLabels: Record<StrategicPriority, string> = {
   P1: 'Critical',
   P2: 'High',
   P3: 'Medium',
-  P4: 'Low',
 };
 
 export const PriorityBadge: React.FC<PriorityBadgeProps> = ({

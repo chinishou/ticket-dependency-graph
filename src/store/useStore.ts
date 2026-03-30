@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Company, Department, Project, Goal, Task, Milestone, Worker } from '../types';
+import type { Company, Department, Project, Goal, Task, Milestone, Worker, CalibrationWeights } from '../types';
 import {
   company as mockCompany, departments as mockDepartments, projects as mockProjects,
   goals as mockGoals, tasks as mockTasks, milestones as mockMilestones, workers as mockWorkers,
@@ -56,10 +56,19 @@ interface AppState {
   setSelectedMilestone: (id: string | null) => void;
   setFocusedNode: (id: string | null) => void;
 
+  // Priority calibration
+  calibrationWeights?: CalibrationWeights;
+  setCalibrationWeights: (weights: CalibrationWeights) => void;
+  overridePriority: (taskId: string, score: number, reason: string) => void;
+  liftPriorityOverride: (taskId: string) => void;
+
   // Mutations (still sync for local state, fire API in background)
   updateTask: (taskId: string, updates: Partial<Task>) => void;
   updateMilestone: (milestoneId: string, updates: Partial<Milestone>) => void;
   updateGoal: (goalId: string, updates: Partial<Goal>) => void;
+  updateProject: (projectId: string, updates: Partial<Project>) => void;
+  updateDepartment: (deptId: string, updates: Partial<Department>) => void;
+  updateWorker: (workerId: string, updates: Partial<Worker>) => void;
   addGoal: (goal: Goal) => void;
   addMilestone: (milestone: Milestone) => void;
   addTaskToGoal: (goalId: string, task: Task) => void;
@@ -144,6 +153,8 @@ export const useStore = create<AppState>((set, get) => ({
   isLoading: false,
   isConnected: false,
   lastModified: null,
+
+  calibrationWeights: undefined,
 
   userName: typeof window !== 'undefined' ? localStorage.getItem('tech-tree-user') : null,
   setUserName: (name) => {
@@ -515,6 +526,33 @@ export const useStore = create<AppState>((set, get) => ({
     serverMutation('updateGoal', { entityId: goalId, updates }, set);
   },
 
+  updateProject: (projectId, updates) => {
+    const newProjects = new Map(get().projects);
+    const existing = newProjects.get(projectId);
+    if (!existing) return;
+    newProjects.set(projectId, { ...existing, ...updates });
+    set({ projects: newProjects });
+    serverMutation('updateProject', { entityId: projectId, updates }, set);
+  },
+
+  updateDepartment: (deptId, updates) => {
+    const newDepts = new Map(get().departments);
+    const existing = newDepts.get(deptId);
+    if (!existing) return;
+    newDepts.set(deptId, { ...existing, ...updates });
+    set({ departments: newDepts });
+    serverMutation('updateDepartment', { entityId: deptId, updates }, set);
+  },
+
+  updateWorker: (workerId, updates) => {
+    const newWorkers = new Map(get().workers);
+    const existing = newWorkers.get(workerId);
+    if (!existing) return;
+    newWorkers.set(workerId, { ...existing, ...updates });
+    set({ workers: newWorkers });
+    serverMutation('updateWorker', { entityId: workerId, updates }, set);
+  },
+
   addGoal: (goal) => {
     const newGoals = new Map(get().goals);
     newGoals.set(goal.id, goal);
@@ -616,6 +654,43 @@ export const useStore = create<AppState>((set, get) => ({
 
     set({ tasks: newTasks, goals: newGoals, selectedTaskId: null });
     serverMutation('removeTaskFromGoal', { goalId, taskId }, set);
+  },
+
+  setCalibrationWeights: (weights) => {
+    set({ calibrationWeights: weights });
+  },
+
+  overridePriority: (taskId, score, reason) => {
+    const newTasks = new Map(get().tasks);
+    const task = newTasks.get(taskId);
+    if (!task) return;
+
+    // We don't know the computed score here — caller should pass it via the score param
+    newTasks.set(taskId, {
+      ...task,
+      priorityOverride: {
+        score,
+        setBy: get().userName ?? 'unknown',
+        setAt: new Date().toISOString(),
+        reason,
+        previousComputedScore: 0, // caller should provide real value
+      },
+    });
+    set({ tasks: newTasks });
+    serverMutation('updateTask', { entityId: taskId, updates: { priorityOverride: newTasks.get(taskId)!.priorityOverride } }, set);
+  },
+
+  liftPriorityOverride: (taskId) => {
+    const newTasks = new Map(get().tasks);
+    const task = newTasks.get(taskId);
+    if (!task || !task.priorityOverride) return;
+
+    newTasks.set(taskId, {
+      ...task,
+      priorityOverride: undefined,
+    });
+    set({ tasks: newTasks });
+    serverMutation('updateTask', { entityId: taskId, updates: { priorityOverride: null } }, set);
   },
 
   getTasksForGoal: (goalId) => {

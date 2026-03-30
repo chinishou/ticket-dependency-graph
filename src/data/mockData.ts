@@ -15,6 +15,7 @@ export const departments: Department[] = [
     name: 'Pipeline',
     description: 'Tools and infrastructure for VFX production',
     headName: 'Jane Smith',
+    priority: 'P1',
     workerIds: ['w-alice', 'w-bob', 'w-carol', 'w-david', 'w-eve', 'w-frank', 'w-grace', 'w-henry'],
     goalIds: ['goal-usd-pipeline', 'goal-deadline-integration', 'goal-documentation'],
   },
@@ -23,6 +24,7 @@ export const departments: Department[] = [
     name: 'Lighting',
     description: 'Lighting and look development',
     headName: 'Mike Johnson',
+    priority: 'P1',
     workerIds: ['w-light-1', 'w-light-2', 'w-light-3'],
     goalIds: [],
   },
@@ -31,6 +33,7 @@ export const departments: Department[] = [
     name: 'FX',
     description: 'Effects and simulations',
     headName: 'Sarah Williams',
+    priority: 'P2',
     workerIds: ['w-fx-1', 'w-fx-2'],
     goalIds: [],
   },
@@ -39,6 +42,7 @@ export const departments: Department[] = [
     name: 'Comp',
     description: 'Compositing and final output',
     headName: 'Tom Brown',
+    priority: 'P2',
     workerIds: ['w-comp-1', 'w-comp-2'],
     goalIds: [],
   },
@@ -146,6 +150,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: ['ms-usd-foundation'],
     assignedWorkerIds: ['w-alice'],
     parallelizationFactor: 0.7,
+    createdBy: 'w-alice',
     startedAt: '2025-02-01',
     completedAt: '2025-02-10',
   },
@@ -164,6 +169,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: ['w-alice', 'w-bob'],
     parallelizationFactor: 0.7,
+    createdBy: 'w-alice',
     startedAt: '2025-03-01',
   },
   {
@@ -181,6 +187,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: ['w-carol'],
     parallelizationFactor: 0.5,
+    createdBy: 'w-carol',
   },
   {
     id: 'task-schema-validation',
@@ -197,6 +204,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: ['ms-usd-foundation'],
     assignedWorkerIds: ['w-frank'],
     parallelizationFactor: 0.7,
+    createdBy: 'w-frank',
     startedAt: '2025-02-12',
     completedAt: '2025-02-20',
   },
@@ -215,6 +223,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: ['ms-parallel-render'],
     assignedWorkerIds: ['w-alice', 'w-david', 'w-eve'],
     parallelizationFactor: 0.7,
+    createdBy: 'w-alice',
   },
 
   // Deadline Integration tasks
@@ -233,6 +242,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: ['w-david', 'w-eve'],
     parallelizationFactor: 0.7,
+    createdBy: 'w-david',
     startedAt: '2025-03-05',
   },
   {
@@ -250,6 +260,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: [],
     parallelizationFactor: 0.7,
+    createdBy: 'w-david',
   },
   {
     id: 'task-deadline-dashboard',
@@ -266,6 +277,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: ['ms-deadline-v2'],
     assignedWorkerIds: [],
     parallelizationFactor: 0.7,
+    createdBy: 'w-david',
   },
 
   // Documentation tasks
@@ -284,6 +296,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: [],
     parallelizationFactor: 0.5,
+    createdBy: 'w-grace',
   },
   {
     id: 'task-docs-deadline',
@@ -300,6 +313,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: [],
     parallelizationFactor: 0.5,
+    createdBy: 'w-grace',
   },
 
   // Hero Character Pipeline tasks (cross-department)
@@ -318,6 +332,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: ['w-alice'],
     parallelizationFactor: 0.7,
+    createdBy: 'w-alice',
     startedAt: '2025-01-15',
     completedAt: '2025-01-28',
   },
@@ -336,6 +351,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: ['w-bob'],
     parallelizationFactor: 0.5,
+    createdBy: 'w-bob',
     startedAt: '2025-03-01',
   },
   {
@@ -353,6 +369,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: ['w-light-1', 'w-light-2'],
     parallelizationFactor: 0.7,
+    createdBy: 'w-light-1',
     startedAt: '2025-02-15',
   },
   {
@@ -370,6 +387,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: ['w-fx-1'],
     parallelizationFactor: 0.5,
+    createdBy: 'w-fx-1',
   },
   {
     id: 'task-shader-library',
@@ -386,6 +404,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: [],
     parallelizationFactor: 0.7,
+    createdBy: 'w-light-1',
   },
   {
     id: 'task-light-rig',
@@ -402,6 +421,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: [],
     assignedWorkerIds: [],
     parallelizationFactor: 0.7,
+    createdBy: 'w-light-2',
   },
   {
     id: 'task-comp-template',
@@ -418,6 +438,7 @@ export const tasks: Task[] = [
     unlocksMilestoneIds: ['ms-hero-pipeline-ready'],
     assignedWorkerIds: [],
     parallelizationFactor: 0.5,
+    createdBy: 'w-comp-1',
   },
 ];
 
@@ -565,6 +586,7 @@ export const workers: Worker[] = [
     activeTaskIds: ['task-sublayer-caching'],
     assignedTaskIds: ['task-sublayer-caching', 'task-shot-assembly'],
     availability: 'full',
+    isLead: true,
   },
   {
     id: 'w-bob',
@@ -573,6 +595,7 @@ export const workers: Worker[] = [
     activeTaskIds: ['task-sublayer-caching'],
     assignedTaskIds: ['task-sublayer-caching', 'task-rig-validation'],
     availability: 'full',
+    isLead: false,
   },
   {
     id: 'w-carol',
@@ -581,6 +604,7 @@ export const workers: Worker[] = [
     activeTaskIds: ['task-asset-resolver'],
     assignedTaskIds: ['task-asset-resolver'],
     availability: 'full',
+    isLead: false,
   },
   {
     id: 'w-david',
@@ -589,6 +613,7 @@ export const workers: Worker[] = [
     activeTaskIds: ['task-job-resubmit'],
     assignedTaskIds: ['task-job-resubmit', 'task-shot-assembly'],
     availability: 'full',
+    isLead: false,
   },
   {
     id: 'w-eve',
@@ -597,6 +622,7 @@ export const workers: Worker[] = [
     activeTaskIds: ['task-job-resubmit'],
     assignedTaskIds: ['task-job-resubmit', 'task-shot-assembly'],
     availability: 'full',
+    isLead: false,
   },
   {
     id: 'w-frank',
@@ -605,6 +631,7 @@ export const workers: Worker[] = [
     activeTaskIds: [],
     assignedTaskIds: [],
     availability: 'full',
+    isLead: false,
   },
   {
     id: 'w-grace',
@@ -613,6 +640,7 @@ export const workers: Worker[] = [
     activeTaskIds: [],
     assignedTaskIds: [],
     availability: 'full',
+    isLead: false,
   },
   {
     id: 'w-henry',
@@ -621,6 +649,7 @@ export const workers: Worker[] = [
     activeTaskIds: [],
     assignedTaskIds: [],
     availability: 'full',
+    isLead: false,
   },
   // Lighting
   {
@@ -630,6 +659,7 @@ export const workers: Worker[] = [
     activeTaskIds: ['task-lookdev-template'],
     assignedTaskIds: ['task-lookdev-template'],
     availability: 'full',
+    isLead: true,
   },
   {
     id: 'w-light-2',
@@ -638,6 +668,7 @@ export const workers: Worker[] = [
     activeTaskIds: ['task-lookdev-template'],
     assignedTaskIds: ['task-lookdev-template'],
     availability: 'full',
+    isLead: false,
   },
   {
     id: 'w-light-3',
@@ -646,6 +677,7 @@ export const workers: Worker[] = [
     activeTaskIds: [],
     assignedTaskIds: [],
     availability: 'full',
+    isLead: false,
   },
   // FX
   {
@@ -655,6 +687,7 @@ export const workers: Worker[] = [
     activeTaskIds: [],
     assignedTaskIds: ['task-hair-fx'],
     availability: 'full',
+    isLead: true,
   },
   {
     id: 'w-fx-2',
@@ -663,6 +696,7 @@ export const workers: Worker[] = [
     activeTaskIds: [],
     assignedTaskIds: [],
     availability: 'full',
+    isLead: false,
   },
   // Comp
   {
@@ -672,6 +706,7 @@ export const workers: Worker[] = [
     activeTaskIds: [],
     assignedTaskIds: [],
     availability: 'full',
+    isLead: true,
   },
   {
     id: 'w-comp-2',
@@ -680,5 +715,6 @@ export const workers: Worker[] = [
     activeTaskIds: [],
     assignedTaskIds: [],
     availability: 'full',
+    isLead: false,
   },
 ];

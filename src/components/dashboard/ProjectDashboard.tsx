@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { useStore } from '../../store/useStore';
 import { ProgressBar } from '../shared/ProgressBar';
 import { StatusBadge } from '../shared/StatusBadge';
-import type { Task, TaskStatus } from '../../types';
+import type { Task, TaskStatus, StrategicPriority } from '../../types';
 import { getPriorityColor } from '../../types';
 
 interface ProjectDashboardProps {
@@ -17,6 +17,7 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   onBack,
 }) => {
   const project = useStore((s) => s.projects.get(projectId));
+  const updateProject = useStore((s) => s.updateProject);
   const departments = useStore((s) => s.departments);
   const goals = useStore((s) => s.goals);
   const tasks = useStore((s) => s.tasks);
@@ -127,8 +128,6 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     );
   }
 
-  const priorityColor = getPriorityColor(project.strategicPriority);
-
   return (
     <div style={containerStyle}>
       {/* Header */}
@@ -143,9 +142,28 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1 style={titleStyle}>{project.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
-              <span style={priorityBadgeStyle(priorityColor)}>
-                {project.strategicPriority}
-              </span>
+              <div style={{ display: 'flex', gap: 3 }}>
+                {(['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => {
+                  const color = getPriorityColor(p);
+                  const isActive = project.strategicPriority === p;
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => updateProject(projectId, { strategicPriority: p })}
+                      style={{
+                        fontSize: 11, padding: '2px 8px', borderRadius: 999, cursor: 'pointer',
+                        border: `1px solid ${isActive ? color : 'var(--color-border)'}`,
+                        backgroundColor: isActive ? `${color}20` : 'transparent',
+                        color: isActive ? color : 'var(--color-text-muted)',
+                        fontWeight: isActive ? 700 : 400,
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
               <StatusBadge status={project.status as TaskStatus} size="sm" />
               {project.deadline && (
                 <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
@@ -345,19 +363,6 @@ const backButtonStyle: React.CSSProperties = {
   padding: '6px 14px',
   borderRadius: 8,
 };
-
-const priorityBadgeStyle = (color: string): React.CSSProperties => ({
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  fontSize: 11,
-  fontWeight: 700,
-  padding: '2px 8px',
-  borderRadius: 999,
-  color,
-  border: `1px solid ${color}`,
-  letterSpacing: '0.04em',
-});
 
 const deptRowStyle: React.CSSProperties = {
   backgroundColor: 'var(--color-bg-tertiary)',

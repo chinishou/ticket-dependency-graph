@@ -9,12 +9,13 @@ import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
 import { DeptDashboard } from './components/dashboard/DeptDashboard';
 import { TimelineView } from './components/timeline/TimelineView';
 import { WorkerView } from './components/worker/WorkerView';
+import { SettingsView } from './components/settings/SettingsView';
 import { useStore } from './store/useStore';
 
 // View A = Tech Tree (goal-map or tech-tree sub-views)
 // View B = Dashboard (company, project, or department)
 // View C = Timeline (future)
-type TopView = 'A' | 'B' | 'C' | 'D';
+type TopView = 'A' | 'B' | 'C' | 'D' | 'E';
 type SubViewA = 'goal-map' | 'tech-tree';
 type SubViewB = 'company' | 'project' | 'department';
 
@@ -103,7 +104,7 @@ function App() {
   }, [clearSelection]);
 
   // --- View switching ---
-  const handleViewSwitch = useCallback((view: 'A' | 'B' | 'C' | 'D') => {
+  const handleViewSwitch = useCallback((view: 'A' | 'B' | 'C' | 'D' | 'E') => {
     setTopView(view);
   }, []);
 
@@ -152,6 +153,10 @@ function App() {
 
     if (topView === 'D') {
       return [{ label: company.name }, { label: 'Workers' }];
+    }
+
+    if (topView === 'E') {
+      return [{ label: company.name }, { label: 'Settings' }];
     }
 
     return [{ label: company.name }];
@@ -243,6 +248,13 @@ function App() {
       {topView === 'D' && (
         <div key="workers" className="view-enter" style={{ width: '100%', height: '100%' }}>
           <WorkerView onSelectGoal={handleGoalChange} />
+        </div>
+      )}
+
+      {/* View E: Settings */}
+      {topView === 'E' && (
+        <div key="settings" className="view-enter" style={{ width: '100%', height: '100%' }}>
+          <SettingsView />
         </div>
       )}
     </AppShell>

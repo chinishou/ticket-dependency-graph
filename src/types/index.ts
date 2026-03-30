@@ -1,6 +1,22 @@
 // === Enums ===
 
-export type StrategicPriority = 'P1' | 'P2' | 'P3' | 'P4';
+export type StrategicPriority = 'P1' | 'P2' | 'P3';
+
+export interface CalibrationWeights {
+  project: number;   // default 0.25
+  dept: number;      // default 0.20
+  goal: number;      // default 0.15
+  creator: number;   // default 0.10
+  graph: number;     // default 0.30
+}
+
+export interface PriorityOverride {
+  score: number;                // frozen display score (0-100)
+  setBy: string;                // worker ID
+  setAt: string;                // ISO timestamp
+  reason: string;               // required justification
+  previousComputedScore: number; // snapshot at override time
+}
 
 export type TaskStatus =
   | 'locked'
@@ -28,6 +44,7 @@ export interface Department {
   name: string;
   description: string;
   headName: string;
+  priority: StrategicPriority;
   workerIds: string[];
   goalIds: string[];
 }
@@ -74,6 +91,8 @@ export interface Task {
   unlocksMilestoneIds: string[];
   assignedWorkerIds: string[];
   parallelizationFactor: number;
+  createdBy?: string;
+  priorityOverride?: PriorityOverride;
   startedAt?: string;
   completedAt?: string;
   dueDate?: string;
@@ -102,6 +121,7 @@ export interface Worker {
   activeTaskIds: string[];
   assignedTaskIds: string[];
   availability: WorkerAvailability;
+  isLead?: boolean;
 }
 
 // === Computed helpers ===
@@ -139,7 +159,6 @@ export function getPriorityColor(priority: StrategicPriority): string {
     case 'P1': return 'var(--color-p1)';
     case 'P2': return 'var(--color-p2)';
     case 'P3': return 'var(--color-p3)';
-    case 'P4': return 'var(--color-p4)';
   }
 }
 

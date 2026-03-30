@@ -23,8 +23,8 @@ export function WorkerView({ onSelectGoal }: WorkerViewProps) {
   const departments = useMemo(() => Array.from(departmentsMap.values()), [departmentsMap]);
 
   const priorities = useMemo(
-    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap }),
-    [tasksMap, milestonesMap, goalsMap],
+    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap }),
+    [tasksMap, milestonesMap, goalsMap, departmentsMap],
   );
 
   const filteredWorkers = useMemo(() => {
