@@ -3,7 +3,7 @@ import {
   getAllEntities, getLastModified, getChangedEntitiesSince,
   acquireLock, releaseLock, getAllLocks,
   heartbeatPresence, removePresence, getPresence,
-  createUser, getUsers,
+  createUser, getUsers, getUserByName, updateUserRole,
 } from './db';
 import {
   updateTask, updateMilestone, updateGoal,
@@ -28,9 +28,87 @@ router.get('/state', (_req, res) => {
 
 // --- Mutations ---
 
+// Dev fallback admin password (override with ADMIN_PASSWORD env var)
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin2026';
+
+// --- Auth ---
+
+router.post('/auth/upgrade-admin', (req, res) => {
+  const { userName, password } = req.body;
+  if (!userName || !password) {
+    res.status(400).json({ error: 'userName and password are required' });
+    return;
+  }
+  if (password !== ADMIN_PASSWORD) {
+    res.status(403).json({ success: false, error: 'Invalid password' });
+    return;
+  }
+  // Admin is session-only — don't persist to DB. Just validate and respond.
+  res.json({ success: true, role: 'admin' });
+});
+
+router.post('/users/:name/role', (req, res) => {
+  const targetName = req.params.name;
+  const { role, adminPassword } = req.body;
+  if (!role) {
+    res.status(400).json({ error: 'role is required' });
+    return;
+  }
+  if (!['worker', 'coordinator'].includes(role)) {
+    res.status(400).json({ error: 'Invalid role. Only worker and coordinator can be assigned.' });
+    return;
+  }
+  // Admin is session-only, so require admin password to prove authorization
+  if (adminPassword !== ADMIN_PASSWORD) {
+    res.status(403).json({ error: 'Admin password required to change roles' });
+    return;
+  }
+  try {
+    const user = updateUserRole(targetName, role);
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// --- Mutations ---
+
+// Mutation types that require coordinator or admin
+const EDITOR_MUTATIONS = new Set([
+  'updateTask', 'updateMilestone', 'updateGoal',
+  'addGoal', 'addMilestone', 'addTaskToGoal', 'removeTaskFromGoal',
+  'updateProject', 'updateDepartment', 'updateWorker',
+]);
+
+// Fields a worker can update on their own tasks
+const WORKER_ALLOWED_TASK_FIELDS = new Set(['status', 'startedAt', 'completedAt']);
+
+function isWorkerAllowedMutation(type: string, body: Record<string, unknown>): boolean {
+  if (type !== 'updateTask') return false;
+  const updates = body.updates as Record<string, unknown> | undefined;
+  if (!updates) return false;
+  // All update keys must be in the allowed set
+  return Object.keys(updates).every(k => WORKER_ALLOWED_TASK_FIELDS.has(k));
+}
+
 router.post('/mutations/:type', (req, res) => {
   const { type } = req.params;
   const body = req.body;
+
+  // Role validation
+  if (EDITOR_MUTATIONS.has(type) && body.userName) {
+    // Admin is session-only (not in DB), so accept client-claimed role if admin
+    // For worker/coordinator, verify against DB
+    const clientRole = body.role ?? 'worker';
+    const user = getUserByName(body.userName);
+    const dbRole = user?.role ?? 'worker';
+    // Use the higher-privilege role: admin from client (session) or DB role
+    const effectiveRole = clientRole === 'admin' ? 'admin' : dbRole;
+    if (effectiveRole === 'worker' && !isWorkerAllowedMutation(type, body)) {
+      res.status(403).json({ error: 'Insufficient permissions' });
+      return;
+    }
+  }
 
   try {
     let result: unknown;
@@ -107,10 +185,20 @@ router.post('/users', (req, res) => {
     return;
   }
   try {
-    res.json(createUser(name.trim()));
+    const user = createUser(name.trim());
+    res.json(user);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
+});
+
+router.get('/users/:name', (req, res) => {
+  const user = getUserByName(req.params.name);
+  if (!user) {
+    res.status(404).json({ error: 'User not found' });
+    return;
+  }
+  res.json(user);
 });
 
 // --- Locks ---

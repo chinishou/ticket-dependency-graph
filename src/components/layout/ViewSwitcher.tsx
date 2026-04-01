@@ -1,10 +1,16 @@
+import type { UserRole } from '../../types';
+
+export type TopView = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+
 interface ViewSwitcherProps {
-  activeView: 'A' | 'B' | 'C' | 'D' | 'E';
-  onSwitch: (view: 'A' | 'B' | 'C' | 'D' | 'E') => void;
+  activeView: TopView;
+  onSwitch: (view: TopView) => void;
+  role: UserRole;
   style?: React.CSSProperties;
 }
 
-const views: { key: 'A' | 'B' | 'C' | 'D' | 'E'; label: string }[] = [
+const allViews: { key: TopView; label: string }[] = [
+  { key: 'F', label: 'My Tasks' },
   { key: 'A', label: 'Tech Tree' },
   { key: 'B', label: 'Dashboard' },
   { key: 'C', label: 'Timeline' },
@@ -12,7 +18,33 @@ const views: { key: 'A' | 'B' | 'C' | 'D' | 'E'; label: string }[] = [
   { key: 'E', label: 'Settings' },
 ];
 
-export function ViewSwitcher({ activeView, onSwitch, style }: ViewSwitcherProps) {
+function getViewsForRole(role: UserRole) {
+  switch (role) {
+    case 'admin':
+      // Admin sees all except My Tasks is available but not prominent
+      return allViews.filter((v) => v.key !== 'F');
+    case 'coordinator':
+      // No Settings, no My Tasks in nav
+      return allViews.filter((v) => v.key !== 'E' && v.key !== 'F');
+    case 'worker':
+      // My Tasks, Tech Tree, Dashboard, Timeline — no Workers or Settings
+      return allViews.filter((v) => v.key !== 'D' && v.key !== 'E');
+    default:
+      return allViews;
+  }
+}
+
+export function getDefaultView(role: UserRole): TopView {
+  switch (role) {
+    case 'admin': return 'B';       // Dashboard
+    case 'coordinator': return 'A'; // Tech Tree
+    case 'worker': return 'F';      // My Tasks
+  }
+}
+
+export function ViewSwitcher({ activeView, onSwitch, role, style }: ViewSwitcherProps) {
+  const views = getViewsForRole(role);
+
   return (
     <div
       style={{

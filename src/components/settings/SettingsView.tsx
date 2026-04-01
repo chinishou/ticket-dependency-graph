@@ -1,11 +1,25 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../../store/useStore';
 import {
   DEFAULT_WEIGHTS,
   deriveWeightsFromCalibration,
   type CalibrationAnswer,
 } from '../../utils/priorityCalc';
-import type { CalibrationWeights } from '../../types';
+import type { CalibrationWeights, UserRole } from '../../types';
+
+const sectionStyle: React.CSSProperties = {
+  padding: '20px 24px',
+  borderRadius: 10,
+  backgroundColor: 'var(--color-bg-secondary)',
+  border: '1px solid var(--color-border)',
+};
+
+const headingStyle: React.CSSProperties = {
+  fontSize: 15,
+  fontWeight: 600,
+  color: 'var(--color-text-primary)',
+  marginBottom: 16,
+};
 
 // === Weight Sliders Section ===
 
@@ -465,20 +479,6 @@ export function SettingsView() {
     setMode('manual');
   };
 
-  const sectionStyle: React.CSSProperties = {
-    padding: '20px 24px',
-    borderRadius: 10,
-    backgroundColor: 'var(--color-bg-secondary)',
-    border: '1px solid var(--color-border)',
-  };
-
-  const headingStyle: React.CSSProperties = {
-    fontSize: 15,
-    fontWeight: 600,
-    color: 'var(--color-text-primary)',
-    marginBottom: 16,
-  };
-
   return (
     <div style={{
       width: '100%',
@@ -654,6 +654,94 @@ export function SettingsView() {
             </div>
           </div>
         </div>
+
+        {/* Role Management (Admin only) */}
+        <RoleManagement />
+      </div>
+    </div>
+  );
+}
+
+// === Role Management Section ===
+
+const ROLE_OPTIONS: UserRole[] = ['worker', 'coordinator'];
+const ROLE_COLORS: Record<UserRole, string> = { admin: '#ef4444', coordinator: '#f59e0b', worker: '#6b7280' };
+
+function RoleManagement() {
+  const userName = useStore((s) => s.userName);
+  const adminPassword = useStore((s) => s.adminPassword);
+  const [users, setUsers] = useState<{ name: string; role: string; created_at: string }[]>([]);
+  const [updating, setUpdating] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/users').then((r) => r.json()).then(setUsers).catch(() => {});
+  }, []);
+
+  const handleRoleChange = async (targetName: string, newRole: UserRole) => {
+    if (!adminPassword) return;
+    setUpdating(targetName);
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(targetName)}/role`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole, adminPassword }),
+      });
+      if (res.ok) {
+        setUsers((prev) => prev.map((u) => u.name === targetName ? { ...u, role: newRole } : u));
+      }
+    } catch { /* ignore */ }
+    setUpdating(null);
+  };
+
+  return (
+    <div style={{ ...sectionStyle, marginTop: 20 }}>
+      <h2 style={headingStyle}>Role Management</h2>
+      <p style={{ fontSize: 12, color: 'var(--color-text-muted)', margin: '0 0 12px' }}>
+        Assign roles to users. Coordinators can edit tasks and priorities, workers can only view and update their own task status. Admin access is granted via password upgrade.
+      </p>
+      <div style={{ borderRadius: 8, border: '1px solid var(--color-border)', overflow: 'hidden' }}>
+        {users.map((u, i) => {
+          return (
+            <div
+              key={u.name}
+              style={{
+                padding: '10px 14px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                borderBottom: i < users.length - 1 ? '1px solid var(--color-bg-tertiary)' : 'none',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 13, color: 'var(--color-text-primary)', fontWeight: u.name === userName ? 600 : 400 }}>
+                  {u.name}{u.name === userName ? ' (you)' : ''}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 3 }}>
+                {ROLE_OPTIONS.map((role) => (
+                  <button
+                    key={role}
+                    onClick={() => handleRoleChange(u.name, role)}
+                    disabled={updating === u.name}
+                    style={{
+                      fontSize: 10, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
+                      border: u.role === role ? `1px solid ${ROLE_COLORS[role]}` : '1px solid var(--color-border)',
+                      backgroundColor: u.role === role ? `${ROLE_COLORS[role]}20` : 'transparent',
+                      color: u.role === role ? ROLE_COLORS[role] : 'var(--color-text-muted)',
+                      fontWeight: u.role === role ? 600 : 400,
+                      opacity: updating === u.name ? 0.5 : 1,
+                    }}
+                  >
+                    {role}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {users.length === 0 && (
+          <div style={{ padding: 16, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 12 }}>
+            No users registered
+          </div>
+        )}
       </div>
     </div>
   );

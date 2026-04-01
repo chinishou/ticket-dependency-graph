@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Company, Department, Project, Goal, Task, Milestone, Worker, CalibrationWeights } from '../types';
+import type { Company, Department, Project, Goal, Task, Milestone, Worker, CalibrationWeights, UserRole } from '../types';
 import {
   company as mockCompany, departments as mockDepartments, projects as mockProjects,
   goals as mockGoals, tasks as mockTasks, milestones as mockMilestones, workers as mockWorkers,
@@ -33,9 +33,15 @@ interface AppState {
   isConnected: boolean;
   lastModified: string | null;
 
-  // User tag
+  // User tag & role
   userName: string | null;
   setUserName: (name: string | null) => void;
+  userRole: UserRole;
+  setUserRole: (role: UserRole) => void;
+  userWorkerId: string | null;
+  setUserWorkerId: (id: string | null) => void;
+  adminPassword: string | null;
+  upgradeToAdmin: (password: string) => Promise<boolean>;
 
   // Locks
   locks: Map<string, LockInfo>;
@@ -122,12 +128,15 @@ function applyLocks(locks: { scope: string; locked_by: string; locked_at: string
 }
 
 // Fire mutation to server, reconcile state from response
-async function serverMutation(type: string, body: Record<string, unknown>, set: (s: Partial<AppState>) => void) {
+async function serverMutation(type: string, body: Record<string, unknown>, set: (s: Partial<AppState>) => void, getState?: () => AppState) {
+  const enriched = getState
+    ? { ...body, userName: getState().userName, role: getState().userRole, userWorkerId: getState().userWorkerId }
+    : body;
   try {
     const res = await fetch(`/api/mutations/${type}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(enriched),
     });
     if (res.ok) {
       const data = await res.json();
@@ -165,11 +174,75 @@ export const useStore = create<AppState>((set, get) => ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
+      }).then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          // Only accept worker/coordinator from DB — admin is session-only via password upgrade
+          if (data.role && data.role !== 'admin') {
+            localStorage.setItem('tech-tree-role', data.role);
+            set({ userRole: data.role });
+          }
+        }
       }).catch(() => {});
     } else {
       localStorage.removeItem('tech-tree-user');
+      localStorage.removeItem('tech-tree-role');
+      localStorage.removeItem('tech-tree-worker-id');
     }
-    set({ userName: name });
+    set({ userName: name, adminPassword: name ? get().adminPassword : null });
+  },
+
+  userRole: (() => {
+    if (typeof window === 'undefined') return 'worker';
+    const stored = localStorage.getItem('tech-tree-role') as UserRole | null;
+    // Admin is session-only — never restore from localStorage
+    if (stored === 'admin') {
+      localStorage.removeItem('tech-tree-role');
+      return 'worker';
+    }
+    return stored ?? 'worker';
+  })(),
+  setUserRole: (role) => {
+    // Only persist worker/coordinator — admin is session-only
+    if (role !== 'admin') {
+      localStorage.setItem('tech-tree-role', role);
+    }
+    set({ userRole: role });
+  },
+
+  userWorkerId: typeof window !== 'undefined' ? localStorage.getItem('tech-tree-worker-id') : null,
+  setUserWorkerId: (id) => {
+    if (id) {
+      localStorage.setItem('tech-tree-worker-id', id);
+    } else {
+      localStorage.removeItem('tech-tree-worker-id');
+    }
+    set({ userWorkerId: id });
+  },
+
+  adminPassword: null,
+
+  upgradeToAdmin: async (password) => {
+    const userName = get().userName;
+    if (!userName) return false;
+    try {
+      const res = await fetch('/api/auth/upgrade-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userName, password }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          // Admin is session-only — don't persist to localStorage
+          set({ userRole: 'admin', adminPassword: password });
+          return true;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
   },
 
   locks: new Map(),
@@ -393,7 +466,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     set({ tasks: newTasks });
-    serverMutation('updateTask', { entityId: taskId, updates }, set);
+    serverMutation('updateTask', { entityId: taskId, updates }, set, get);
   },
 
   updateMilestone: (milestoneId, updates) => {
@@ -469,7 +542,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     set({ milestones: newMilestones, tasks: newTasks });
-    serverMutation('updateMilestone', { entityId: milestoneId, updates }, set);
+    serverMutation('updateMilestone', { entityId: milestoneId, updates }, set, get);
   },
 
   updateGoal: (goalId, updates) => {
@@ -523,7 +596,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     set({ goals: newGoals });
-    serverMutation('updateGoal', { entityId: goalId, updates }, set);
+    serverMutation('updateGoal', { entityId: goalId, updates }, set, get);
   },
 
   updateProject: (projectId, updates) => {
@@ -532,7 +605,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (!existing) return;
     newProjects.set(projectId, { ...existing, ...updates });
     set({ projects: newProjects });
-    serverMutation('updateProject', { entityId: projectId, updates }, set);
+    serverMutation('updateProject', { entityId: projectId, updates }, set, get);
   },
 
   updateDepartment: (deptId, updates) => {
@@ -541,7 +614,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (!existing) return;
     newDepts.set(deptId, { ...existing, ...updates });
     set({ departments: newDepts });
-    serverMutation('updateDepartment', { entityId: deptId, updates }, set);
+    serverMutation('updateDepartment', { entityId: deptId, updates }, set, get);
   },
 
   updateWorker: (workerId, updates) => {
@@ -550,7 +623,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (!existing) return;
     newWorkers.set(workerId, { ...existing, ...updates });
     set({ workers: newWorkers });
-    serverMutation('updateWorker', { entityId: workerId, updates }, set);
+    serverMutation('updateWorker', { entityId: workerId, updates }, set, get);
   },
 
   addGoal: (goal) => {
@@ -564,7 +637,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (dept && !dept.goalIds.includes(goal.id)) {
         newDepts.set(goal.parentId, { ...dept, goalIds: [...dept.goalIds, goal.id] });
         set({ goals: newGoals, departments: newDepts });
-        serverMutation('addGoal', { goal }, set);
+        serverMutation('addGoal', { goal }, set, get);
         return;
       }
     } else if (goal.parentType === 'project') {
@@ -573,12 +646,12 @@ export const useStore = create<AppState>((set, get) => ({
       if (proj && !proj.goalIds.includes(goal.id)) {
         newProjects.set(goal.parentId, { ...proj, goalIds: [...proj.goalIds, goal.id] });
         set({ goals: newGoals, projects: newProjects });
-        serverMutation('addGoal', { goal }, set);
+        serverMutation('addGoal', { goal }, set, get);
         return;
       }
     }
     set({ goals: newGoals });
-    serverMutation('addGoal', { goal }, set);
+    serverMutation('addGoal', { goal }, set, get);
   },
 
   addMilestone: (milestone) => {
@@ -591,12 +664,12 @@ export const useStore = create<AppState>((set, get) => ({
       if (goal && !goal.milestoneIds.includes(milestone.id)) {
         newGoals.set(milestone.parentId, { ...goal, milestoneIds: [...goal.milestoneIds, milestone.id] });
         set({ milestones: newMilestones, goals: newGoals });
-        serverMutation('addMilestone', { milestone }, set);
+        serverMutation('addMilestone', { milestone }, set, get);
         return;
       }
     }
     set({ milestones: newMilestones });
-    serverMutation('addMilestone', { milestone }, set);
+    serverMutation('addMilestone', { milestone }, set, get);
   },
 
   addTaskToGoal: (goalId, task) => {
@@ -610,7 +683,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     set({ tasks: newTasks, goals: newGoals });
-    serverMutation('addTaskToGoal', { goalId, task }, set);
+    serverMutation('addTaskToGoal', { goalId, task }, set, get);
   },
 
   removeTaskFromGoal: (goalId, taskId) => {
@@ -653,7 +726,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     set({ tasks: newTasks, goals: newGoals, selectedTaskId: null });
-    serverMutation('removeTaskFromGoal', { goalId, taskId }, set);
+    serverMutation('removeTaskFromGoal', { goalId, taskId }, set, get);
   },
 
   setCalibrationWeights: (weights) => {

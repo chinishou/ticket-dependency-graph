@@ -1,5 +1,7 @@
 // === Enums ===
 
+export type UserRole = 'admin' | 'coordinator' | 'worker';
+
 export type StrategicPriority = 'P1' | 'P2' | 'P3';
 
 export interface CalibrationWeights {

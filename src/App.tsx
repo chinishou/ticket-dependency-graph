@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import { GoalSelector } from './components/layout/GoalSelector';
-import { ViewSwitcher } from './components/layout/ViewSwitcher';
+import { ViewSwitcher, getDefaultView } from './components/layout/ViewSwitcher';
+import type { TopView } from './components/layout/ViewSwitcher';
+import { LoginPage } from './components/layout/LoginPage';
 import { TechTreeView } from './components/tech-tree/TechTreeView';
 import { GoalMapView } from './components/tech-tree/GoalMapView';
 import { CompanyDashboard } from './components/dashboard/CompanyDashboard';
@@ -10,12 +12,9 @@ import { DeptDashboard } from './components/dashboard/DeptDashboard';
 import { TimelineView } from './components/timeline/TimelineView';
 import { WorkerView } from './components/worker/WorkerView';
 import { SettingsView } from './components/settings/SettingsView';
+import { MyTasksView } from './components/worker/MyTasksView';
 import { useStore } from './store/useStore';
 
-// View A = Tech Tree (goal-map or tech-tree sub-views)
-// View B = Dashboard (company, project, or department)
-// View C = Timeline (future)
-type TopView = 'A' | 'B' | 'C' | 'D' | 'E';
 type SubViewA = 'goal-map' | 'tech-tree';
 type SubViewB = 'company' | 'project' | 'department';
 
@@ -23,6 +22,7 @@ function App() {
   const fetchState = useStore((s) => s.fetchState);
   const pollForUpdates = useStore((s) => s.pollForUpdates);
   const isConnected = useStore((s) => s.isConnected);
+  const userRole = useStore((s) => s.userRole);
 
   // Fetch state from server on mount
   useEffect(() => {
@@ -36,6 +36,8 @@ function App() {
     return () => clearInterval(interval);
   }, [isConnected, pollForUpdates]);
 
+  const userName = useStore((s) => s.userName);
+
   const company = useStore((s) => s.company);
   const goalsMap = useStore((s) => s.goals);
   const departmentsMap = useStore((s) => s.departments);
@@ -43,12 +45,22 @@ function App() {
   const setSelectedTask = useStore((s) => s.setSelectedTask);
   const setSelectedMilestone = useStore((s) => s.setSelectedMilestone);
 
-  const [topView, setTopView] = useState<TopView>('A');
-  const [subViewA, setSubViewA] = useState<SubViewA>('tech-tree');
+  const [topView, setTopView] = useState<TopView>(() => getDefaultView(userRole));
+  const [subViewA, setSubViewA] = useState<SubViewA>(() => userRole === 'coordinator' ? 'goal-map' : 'tech-tree');
   const [subViewB, setSubViewB] = useState<SubViewB>('company');
   const [selectedGoalId, setSelectedGoalId] = useState('goal-usd-pipeline');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedDeptId, setSelectedDeptId] = useState('');
+
+  // Reset to default view whenever role changes (including re-login as different role)
+  const [lastRole, setLastRole] = useState(userRole);
+  useEffect(() => {
+    if (userRole !== lastRole) {
+      setLastRole(userRole);
+      setTopView(getDefaultView(userRole));
+      setSubViewA(userRole === 'coordinator' ? 'goal-map' : 'tech-tree');
+    }
+  }, [userRole, lastRole]);
 
   const goal = goalsMap.get(selectedGoalId);
   const parent = goal
@@ -104,12 +116,16 @@ function App() {
   }, [clearSelection]);
 
   // --- View switching ---
-  const handleViewSwitch = useCallback((view: 'A' | 'B' | 'C' | 'D' | 'E') => {
+  const handleViewSwitch = useCallback((view: TopView) => {
     setTopView(view);
   }, []);
 
   // --- Breadcrumbs ---
   const buildBreadcrumbs = () => {
+    if (topView === 'F') {
+      return [{ label: company.name }, { label: 'My Tasks' }];
+    }
+
     if (topView === 'A') {
       if (subViewA === 'goal-map') {
         return [
@@ -162,6 +178,11 @@ function App() {
     return [{ label: company.name }];
   };
 
+  // Show login page when no user is logged in
+  if (!userName) {
+    return <LoginPage />;
+  }
+
   return (
     <AppShell
       breadcrumbs={buildBreadcrumbs()}
@@ -189,10 +210,17 @@ function App() {
               onSelectGoal={handleGoalChange}
             />
           )}
-          <ViewSwitcher activeView={topView} onSwitch={handleViewSwitch} />
+          <ViewSwitcher activeView={topView} onSwitch={handleViewSwitch} role={userRole} />
         </div>
       }
     >
+      {/* View F: My Tasks */}
+      {topView === 'F' && (
+        <div key="my-tasks" className="view-enter" style={{ width: '100%', height: '100%' }}>
+          <MyTasksView onSelectGoal={handleGoalChange} />
+        </div>
+      )}
+
       {/* View A: Tech Tree */}
       {topView === 'A' && subViewA === 'goal-map' && goal && parent && (
         <div key="goal-map" className="view-enter" style={{ width: '100%', height: '100%' }}>

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useStore } from '../../store/useStore';
 import { ProgressBar } from '../shared/ProgressBar';
 import type { Project, Department, Worker, StrategicPriority } from '../../types';
+import { usePermission } from '../../hooks/usePermission';
 
 interface CompanyDashboardProps {
   onSelectProject: (projectId: string) => void;
@@ -21,6 +22,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const workers = useStore((s) => s.workers);
   const updateProject = useStore((s) => s.updateProject);
   const updateDepartment = useStore((s) => s.updateDepartment);
+  const { canEditPriorities } = usePermission();
 
   // Hover state for cards
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
@@ -70,7 +72,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
           if (task.status === 'paused') pausedTasks++;
           for (const wId of task.assignedWorkerIds) {
             const worker = workers.get(wId);
-            if (worker && worker.activeTaskIds.length > 0) {
+            if (worker && worker.activeTaskIds?.length > 0) {
               activeWorkerIds.add(wId);
             }
           }
@@ -148,7 +150,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         const worker = workers.get(wId);
         if (!worker) continue;
         deptWorkers.push(worker);
-        if (worker.activeTaskIds.length > 0) activeWorkers++;
+        if (worker.activeTaskIds?.length > 0) activeWorkers++;
       }
 
       let totalMilestones = 0;
@@ -274,7 +276,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                     <div style={cardHeaderStyle}>
                       <div style={cardTitleStyle}>{project.name}</div>
                       <div style={{ display: 'flex', gap: 3 }}>
-                        {(['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => (
+                        {canEditPriorities ? (['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => (
                           <button
                             key={p}
                             onClick={(e) => { e.stopPropagation(); updateProject(project.id, { strategicPriority: p }); }}
@@ -288,7 +290,11 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                           >
                             {p}
                           </button>
-                        ))}
+                        )) : (
+                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, border: '1px solid #ef4444', backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', fontWeight: 700 }}>
+                            {project.strategicPriority}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -364,7 +370,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                       <div style={cardTitleStyle}>{department.name}</div>
                       <div style={{ display: 'flex', gap: 3 }}>
-                        {(['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => (
+                        {canEditPriorities ? (['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => (
                           <button
                             key={p}
                             onClick={(e) => { e.stopPropagation(); updateDepartment(department.id, { priority: p }); }}
@@ -378,7 +384,11 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                           >
                             {p}
                           </button>
-                        ))}
+                        )) : (
+                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, border: '1px solid #f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', fontWeight: 700 }}>
+                            {department.priority}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div style={deptHeadStyle}>{department.headName}</div>

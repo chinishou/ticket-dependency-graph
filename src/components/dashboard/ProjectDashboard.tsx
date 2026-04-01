@@ -4,6 +4,7 @@ import { ProgressBar } from '../shared/ProgressBar';
 import { StatusBadge } from '../shared/StatusBadge';
 import type { Task, TaskStatus, StrategicPriority } from '../../types';
 import { getPriorityColor } from '../../types';
+import { usePermission } from '../../hooks/usePermission';
 
 interface ProjectDashboardProps {
   projectId: string;
@@ -18,6 +19,7 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 }) => {
   const project = useStore((s) => s.projects.get(projectId));
   const updateProject = useStore((s) => s.updateProject);
+  const { canEditPriorities } = usePermission();
   const departments = useStore((s) => s.departments);
   const goals = useStore((s) => s.goals);
   const tasks = useStore((s) => s.tasks);
@@ -143,7 +145,7 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             <h1 style={titleStyle}>{project.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', gap: 3 }}>
-                {(['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => {
+                {canEditPriorities ? (['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => {
                   const color = getPriorityColor(p);
                   const isActive = project.strategicPriority === p;
                   return (
@@ -162,7 +164,14 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                       {p}
                     </button>
                   );
-                })}
+                }) : (() => {
+                  const color = getPriorityColor(project.strategicPriority);
+                  return (
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, border: `1px solid ${color}`, backgroundColor: `${color}20`, color, fontWeight: 700 }}>
+                      {project.strategicPriority}
+                    </span>
+                  );
+                })()}
               </div>
               <StatusBadge status={project.status as TaskStatus} size="sm" />
               {project.deadline && (

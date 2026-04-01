@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useStore } from '../../store/useStore';
 import { getStatusColor, getStatusLabel, getEtaDays } from '../../types';
 import { computeTaskPriorities, getPriorityLabel, getPriorityColor } from '../../utils/priorityCalc';
+import { usePermission } from '../../hooks/usePermission';
 
 function CollapsibleDescription({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -32,9 +33,10 @@ interface EditableDepListProps {
   onRemove: (id: string) => void;
   onAdd: (id: string) => void;
   onItemClick: (id: string, isMilestone?: boolean) => void;
+  readOnly?: boolean;
 }
 
-function EditableDepList({ title, items, allOptions, onReorder, onRemove, onAdd, onItemClick }: EditableDepListProps) {
+function EditableDepList({ title, items, allOptions, onReorder, onRemove, onAdd, onItemClick, readOnly }: EditableDepListProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState('');
   const existingIds = new Set(items.map((i) => i.id));
@@ -54,12 +56,14 @@ function EditableDepList({ title, items, allOptions, onReorder, onRemove, onAdd,
     <div style={{ marginTop: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={sectionTitleStyle}>{title} ({items.length})</div>
-        <button
-          onClick={() => { setShowAdd(!showAdd); setSearch(''); }}
-          style={{ ...smallButtonStyle, fontSize: 14, lineHeight: 1, padding: '2px 6px' }}
-        >
-          {showAdd ? '−' : '+'}
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => { setShowAdd(!showAdd); setSearch(''); }}
+            style={{ ...smallButtonStyle, fontSize: 14, lineHeight: 1, padding: '2px 6px' }}
+          >
+            {showAdd ? '−' : '+'}
+          </button>
+        )}
       </div>
 
       {showAdd && (
@@ -103,11 +107,13 @@ function EditableDepList({ title, items, allOptions, onReorder, onRemove, onAdd,
             {item.isMilestone && <span style={{ fontSize: 11 }}>⭐</span>}
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-            <button onClick={() => moveItem(i, -1)} style={smallButtonStyle} title="Move up">↑</button>
-            <button onClick={() => moveItem(i, 1)} style={smallButtonStyle} title="Move down">↓</button>
-            <button onClick={() => onRemove(item.id)} style={{ ...smallButtonStyle, color: 'var(--color-blocked)' }} title="Remove">✕</button>
-          </div>
+          {!readOnly && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+              <button onClick={() => moveItem(i, -1)} style={smallButtonStyle} title="Move up">↑</button>
+              <button onClick={() => moveItem(i, 1)} style={smallButtonStyle} title="Move down">↓</button>
+              <button onClick={() => onRemove(item.id)} style={{ ...smallButtonStyle, color: 'var(--color-blocked)' }} title="Remove">✕</button>
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -115,6 +121,7 @@ function EditableDepList({ title, items, allOptions, onReorder, onRemove, onAdd,
 }
 
 export function TaskDetailPanel({ goalId }: { goalId: string }) {
+  const { canEditTasks } = usePermission();
   const selectedTaskId = useStore((s) => s.selectedTaskId);
   const selectedMilestoneId = useStore((s) => s.selectedMilestoneId);
   const tasksMap = useStore((s) => s.tasks);
@@ -191,7 +198,7 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
           </div>
         )}
 
-        {/* Editable Required Tasks */}
+        {/* Required Tasks */}
         <EditableDepList
           title="Required Tasks"
           items={requiredTasks.map((t) => t ? { id: t.id, name: t.name, status: t.status } : null).filter(Boolean) as { id: string; name: string; status: string }[]}
@@ -200,9 +207,10 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
           onRemove={(id) => updateMilestone(selectedMilestoneId, { requiredTaskIds: ms.requiredTaskIds.filter((d) => d !== id) })}
           onAdd={(id) => updateMilestone(selectedMilestoneId, { requiredTaskIds: [...ms.requiredTaskIds, id] })}
           onItemClick={(id, isMilestone) => { if (isMilestone) setSelectedMilestone(id); else setSelectedTask(id); }}
+          readOnly={!canEditTasks}
         />
 
-        {/* Editable Required Milestones */}
+        {/* Required Milestones */}
         <EditableDepList
           title="Required Milestones"
           items={requiredMilestones.map((m2) => m2 ? { id: m2.id, name: m2.name, isMilestone: true } : null).filter(Boolean) as { id: string; name: string; isMilestone: boolean }[]}
@@ -211,6 +219,7 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
           onRemove={(id) => updateMilestone(selectedMilestoneId, { requiredMilestoneIds: ms.requiredMilestoneIds.filter((d) => d !== id) })}
           onAdd={(id) => updateMilestone(selectedMilestoneId, { requiredMilestoneIds: [...ms.requiredMilestoneIds, id] })}
           onItemClick={(id) => setSelectedMilestone(id)}
+          readOnly={!canEditTasks}
         />
       </div>
     );
@@ -335,51 +344,53 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
               <span style={{ color: '#38bdf8' }}>GF:{Math.round(pri.graphFactor * 0.30)}</span>
             </div>
 
-            {/* Override — direct number input */}
-            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              {!isOverridden ? (
-                <>
-                  <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>Override:</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    placeholder={String(pri.computedScore)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        const val = parseInt((e.target as HTMLInputElement).value);
-                        if (!isNaN(val) && val >= 0 && val <= 100) {
-                          overridePriority(task.id, val, 'Manual override');
-                          (e.target as HTMLInputElement).value = '';
+            {/* Override — direct number input (editor roles only) */}
+            {canEditTasks && (
+              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {!isOverridden ? (
+                  <>
+                    <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>Override:</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      placeholder={String(pri.computedScore)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const val = parseInt((e.target as HTMLInputElement).value);
+                          if (!isNaN(val) && val >= 0 && val <= 100) {
+                            overridePriority(task.id, val, 'Manual override');
+                            (e.target as HTMLInputElement).value = '';
+                          }
                         }
-                      }
-                    }}
-                    style={{
-                      width: 52, fontSize: 11, padding: '3px 6px', borderRadius: 4,
-                      border: '1px solid var(--color-border)',
-                      backgroundColor: 'var(--color-bg-tertiary)',
-                      color: 'var(--color-text-primary)',
-                      textAlign: 'center',
-                    }}
-                  />
-                  <span style={{ fontSize: 9, color: 'var(--color-text-muted)' }}>Enter to set</span>
-                </>
-              ) : (
-                <>
-                  <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>Overridden to {pri.score}</span>
-                  <button
-                    onClick={() => liftPriorityOverride(task.id)}
-                    style={{
-                      fontSize: 10, padding: '2px 8px', borderRadius: 4,
-                      border: '1px solid rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                      color: '#ef4444', cursor: 'pointer',
-                    }}
-                  >
-                    Lift
-                  </button>
-                </>
-              )}
-            </div>
+                      }}
+                      style={{
+                        width: 52, fontSize: 11, padding: '3px 6px', borderRadius: 4,
+                        border: '1px solid var(--color-border)',
+                        backgroundColor: 'var(--color-bg-tertiary)',
+                        color: 'var(--color-text-primary)',
+                        textAlign: 'center',
+                      }}
+                    />
+                    <span style={{ fontSize: 9, color: 'var(--color-text-muted)' }}>Enter to set</span>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>Overridden to {pri.score}</span>
+                    <button
+                      onClick={() => liftPriorityOverride(task.id)}
+                      style={{
+                        fontSize: 10, padding: '2px 8px', borderRadius: 4,
+                        border: '1px solid rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                        color: '#ef4444', cursor: 'pointer',
+                      }}
+                    >
+                      Lift
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </>
         );
       })()}
@@ -399,7 +410,7 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
                 {w.name.split(' ').map((n) => n[0]).join('')}
               </div>
               <span>{w.name}</span>
-              {w.activeTaskIds.includes(task.id) && (
+              {(w.activeTaskIds ?? []).includes(task.id) && (
                 <span style={{ fontSize: 9, color: 'var(--color-in-progress)', marginLeft: 'auto' }}>● Active</span>
               )}
             </div>
@@ -407,7 +418,7 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
         </div>
       )}
 
-      {/* Editable Prerequisites */}
+      {/* Prerequisites */}
       <EditableDepList
         title="Prerequisites"
         items={prereqItems}
@@ -416,9 +427,10 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
         onRemove={(id) => updateTask(selectedTaskId, { dependsOnTaskIds: task.dependsOnTaskIds.filter((d) => d !== id) })}
         onAdd={(id) => updateTask(selectedTaskId, { dependsOnTaskIds: [...task.dependsOnTaskIds, id] })}
         onItemClick={handleItemClick}
+        readOnly={!canEditTasks}
       />
 
-      {/* Editable Unlocks */}
+      {/* Unlocks */}
       <EditableDepList
         title="Unlocks When Complete"
         items={[...unlockTaskItems, ...unlockMilestoneItems]}
@@ -446,21 +458,24 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
           }
         }}
         onItemClick={handleItemClick}
+        readOnly={!canEditTasks}
       />
 
-      {/* Remove from goal */}
-      <div style={{ marginTop: 24, borderTop: '1px solid var(--color-bg-tertiary)', paddingTop: 12 }}>
-        <button
-          onClick={() => removeTaskFromGoal(goalId, selectedTaskId)}
-          style={{
-            width: '100%', padding: '8px', borderRadius: 6,
-            border: '1px solid var(--color-blocked)', background: 'transparent',
-            color: 'var(--color-blocked)', fontSize: 12, cursor: 'pointer',
-          }}
-        >
-          Remove from Goal
-        </button>
-      </div>
+      {/* Remove from goal (editor roles only) */}
+      {canEditTasks && (
+        <div style={{ marginTop: 24, borderTop: '1px solid var(--color-bg-tertiary)', paddingTop: 12 }}>
+          <button
+            onClick={() => removeTaskFromGoal(goalId, selectedTaskId)}
+            style={{
+              width: '100%', padding: '8px', borderRadius: 6,
+              border: '1px solid var(--color-blocked)', background: 'transparent',
+              color: 'var(--color-blocked)', fontSize: 12, cursor: 'pointer',
+            }}
+          >
+            Remove from Goal
+          </button>
+        </div>
+      )}
     </div>
   );
 }

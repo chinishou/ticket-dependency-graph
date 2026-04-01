@@ -23,6 +23,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS users (
     name TEXT PRIMARY KEY,
+    role TEXT DEFAULT 'worker',
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -45,6 +46,16 @@ db.exec(`
     value TEXT NOT NULL
   );
 `);
+
+// Migrate: add role column if missing
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'worker'`);
+} catch {
+  // Column already exists
+}
+
+// Admin is session-only — downgrade any persisted admin roles to worker
+db.prepare(`UPDATE users SET role = 'worker' WHERE role = 'admin'`).run();
 
 // Track last-modified for polling
 db.exec(`
@@ -199,13 +210,27 @@ export function getPresence(scope?: string): { scope: string; userName: string; 
 
 export function createUser(name: string) {
   db.prepare('INSERT OR IGNORE INTO users (name) VALUES (?)').run(name);
-  return { name };
+  const user = db.prepare('SELECT name, role, created_at FROM users WHERE name = ?').get(name) as {
+    name: string; role: string; created_at: string;
+  };
+  return user;
 }
 
 export function getUsers() {
-  return db.prepare('SELECT name, created_at FROM users ORDER BY name').all() as {
-    name: string; created_at: string;
+  return db.prepare('SELECT name, role, created_at FROM users ORDER BY name').all() as {
+    name: string; role: string; created_at: string;
   }[];
+}
+
+export function getUserByName(name: string) {
+  return db.prepare('SELECT name, role, created_at FROM users WHERE name = ?').get(name) as {
+    name: string; role: string; created_at: string;
+  } | undefined;
+}
+
+export function updateUserRole(name: string, role: string) {
+  db.prepare('UPDATE users SET role = ? WHERE name = ?').run(role, name);
+  return getUserByName(name);
 }
 
 // --- Transaction wrapper ---

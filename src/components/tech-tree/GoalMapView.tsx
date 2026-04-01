@@ -88,7 +88,6 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
   const addGoal = useStore((s) => s.addGoal);
   const userName = useStore((s) => s.userName);
   const heartbeat = useStore((s) => s.heartbeatPresence);
-  const leave = useStore((s) => s.leavePresence);
   const getOtherViewers = useStore((s) => s.getOtherViewers);
 
   const [editMode, setEditMode] = useState(false);
@@ -97,13 +96,18 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
   const presenceScope = `goal-map:${parentId}`;
   useEffect(() => {
     if (!userName) return;
+    const currentUser = userName;
     heartbeat(presenceScope);
     const interval = setInterval(() => heartbeat(presenceScope), 60 * 1000);
     return () => {
       clearInterval(interval);
-      leave(presenceScope);
+      fetch('/api/presence/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: presenceScope, userName: currentUser }),
+      }).catch(() => {});
     };
-  }, [userName, presenceScope, heartbeat, leave]);
+  }, [userName, presenceScope, heartbeat]);
 
   const otherViewers = getOtherViewers(presenceScope);
 

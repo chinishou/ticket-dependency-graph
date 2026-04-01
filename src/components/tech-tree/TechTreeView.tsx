@@ -53,7 +53,6 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
   const addMilestone = useStore((s) => s.addMilestone);
   const userName = useStore((s) => s.userName);
   const heartbeat = useStore((s) => s.heartbeatPresence);
-  const leave = useStore((s) => s.leavePresence);
   const getOtherViewers = useStore((s) => s.getOtherViewers);
 
   const [showUnplaced, setShowUnplaced] = useState(false);
@@ -65,13 +64,19 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
   const presenceScope = `goal:${goalId}`;
   useEffect(() => {
     if (!userName) return;
+    const currentUser = userName;
     heartbeat(presenceScope);
     const interval = setInterval(() => heartbeat(presenceScope), 60 * 1000);
     return () => {
       clearInterval(interval);
-      leave(presenceScope);
+      // Use captured userName — by cleanup time, store may already have null
+      fetch('/api/presence/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: presenceScope, userName: currentUser }),
+      }).catch(() => {});
     };
-  }, [userName, presenceScope, heartbeat, leave]);
+  }, [userName, presenceScope, heartbeat]);
 
   const otherViewers = getOtherViewers(presenceScope);
 

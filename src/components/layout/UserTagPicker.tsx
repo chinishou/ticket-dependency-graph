@@ -1,24 +1,31 @@
 import { useState, useEffect, useRef } from 'react';
 import { useStore } from '../../store/useStore';
+import type { UserRole } from '../../types';
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  admin: 'Admin',
+  coordinator: 'Coordinator',
+  worker: 'Worker',
+};
+
+const ROLE_COLORS: Record<UserRole, string> = {
+  admin: '#ef4444',
+  coordinator: '#f59e0b',
+  worker: '#6b7280',
+};
 
 export function UserTagPicker() {
   const userName = useStore((s) => s.userName);
   const setUserName = useStore((s) => s.setUserName);
   const isConnected = useStore((s) => s.isConnected);
+  const userRole = useStore((s) => s.userRole);
+  const upgradeToAdmin = useStore((s) => s.upgradeToAdmin);
 
   const [isOpen, setIsOpen] = useState(false);
-  const [users, setUsers] = useState<{ name: string }[]>([]);
-  const [newName, setNewName] = useState('');
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [upgradePassword, setUpgradePassword] = useState('');
+  const [upgradeError, setUpgradeError] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Fetch user list when dropdown opens
-  useEffect(() => {
-    if (!isOpen) return;
-    fetch('/api/users')
-      .then((r) => r.json())
-      .then(setUsers)
-      .catch(() => {});
-  }, [isOpen]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -26,31 +33,36 @@ export function UserTagPicker() {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsOpen(false);
+        setShowUpgrade(false);
+        setUpgradePassword('');
+        setUpgradeError('');
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [isOpen]);
 
-  const handleCreateAndSelect = () => {
-    const trimmed = newName.trim();
-    if (!trimmed) return;
-    setUserName(trimmed);
-    setNewName('');
-    setIsOpen(false);
-  };
-
-  const handleSelect = (name: string) => {
-    setUserName(name);
-    setIsOpen(false);
-  };
-
   const handleSignOut = () => {
     setUserName(null);
     setIsOpen(false);
   };
 
+  const handleUpgrade = async () => {
+    setUpgradeError('');
+    const success = await upgradeToAdmin(upgradePassword);
+    if (success) {
+      setShowUpgrade(false);
+      setUpgradePassword('');
+      setIsOpen(false);
+    } else {
+      setUpgradeError('Invalid password');
+    }
+  };
+
   const dotColor = isConnected ? '#22c55e' : '#ef4444';
+  const roleColor = ROLE_COLORS[userRole];
+
+  if (!userName) return null;
 
   return (
     <div ref={dropdownRef} style={{ position: 'relative' }}>
@@ -64,7 +76,7 @@ export function UserTagPicker() {
           borderRadius: 6,
           border: '1px solid var(--color-border)',
           backgroundColor: 'var(--color-bg-tertiary)',
-          color: userName ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+          color: 'var(--color-text-primary)',
           fontSize: 12,
           cursor: 'pointer',
           whiteSpace: 'nowrap',
@@ -74,7 +86,14 @@ export function UserTagPicker() {
           width: 6, height: 6, borderRadius: '50%',
           backgroundColor: dotColor, display: 'inline-block',
         }} />
-        {userName ? userName : 'No user'}
+        {userName}
+        <span style={{
+          fontSize: 9, padding: '1px 5px', borderRadius: 3,
+          backgroundColor: `${roleColor}20`, color: roleColor,
+          fontWeight: 600, marginLeft: 2,
+        }}>
+          {ROLE_LABELS[userRole]}
+        </span>
       </button>
 
       {isOpen && (
@@ -83,7 +102,7 @@ export function UserTagPicker() {
           top: '100%',
           right: 0,
           marginTop: 4,
-          width: 220,
+          width: 240,
           backgroundColor: 'var(--color-bg-secondary)',
           border: '1px solid var(--color-border)',
           borderRadius: 8,
@@ -91,108 +110,98 @@ export function UserTagPicker() {
           zIndex: 1000,
           overflow: 'hidden',
         }}>
-          {/* Current user */}
-          {userName && (
-            <div style={{
-              padding: '8px 12px',
-              borderBottom: '1px solid var(--color-border)',
-              fontSize: 11,
-              color: 'var(--color-text-muted)',
-            }}>
-              Editing as: <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{userName}</span>
-            </div>
-          )}
-
-          {/* Existing users */}
-          {users.length > 0 && (
-            <div style={{ maxHeight: 160, overflowY: 'auto' }}>
-              {users.map((u) => (
-                <button
-                  key={u.name}
-                  onClick={() => handleSelect(u.name)}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    padding: '6px 12px',
-                    border: 'none',
-                    backgroundColor: u.name === userName ? 'var(--color-bg-tertiary)' : 'transparent',
-                    color: 'var(--color-text-primary)',
-                    fontSize: 12,
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-bg-tertiary)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = u.name === userName ? 'var(--color-bg-tertiary)' : 'transparent')}
-                >
-                  {u.name === userName ? `* ${u.name}` : u.name}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Create new user */}
+          {/* Current user info */}
           <div style={{
-            padding: '8px 12px',
-            borderTop: users.length > 0 ? '1px solid var(--color-border)' : 'none',
-            display: 'flex',
-            gap: 4,
+            padding: '10px 12px',
+            borderBottom: '1px solid var(--color-border)',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           }}>
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreateAndSelect()}
-              placeholder="New name..."
-              style={{
-                flex: 1,
-                padding: '4px 8px',
-                borderRadius: 4,
-                border: '1px solid var(--color-border)',
-                backgroundColor: 'var(--color-bg-primary)',
-                color: 'var(--color-text-primary)',
-                fontSize: 12,
-                outline: 'none',
-              }}
-            />
-            <button
-              onClick={handleCreateAndSelect}
-              style={{
-                padding: '4px 8px',
-                borderRadius: 4,
-                border: '1px solid var(--color-border)',
-                backgroundColor: 'var(--color-accent)',
-                color: '#fff',
-                fontSize: 11,
-                cursor: 'pointer',
-              }}
-            >
-              Add
-            </button>
+            <span style={{ fontSize: 13, color: 'var(--color-text-primary)', fontWeight: 600 }}>
+              {userName}
+            </span>
+            <span style={{
+              fontSize: 9, padding: '2px 6px', borderRadius: 4,
+              backgroundColor: `${roleColor}20`, color: roleColor,
+              fontWeight: 600,
+            }}>
+              {ROLE_LABELS[userRole]}
+            </span>
           </div>
 
-          {/* Sign out */}
-          {userName && (
-            <div style={{ borderTop: '1px solid var(--color-border)' }}>
-              <button
-                onClick={handleSignOut}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '6px 12px',
-                  border: 'none',
-                  backgroundColor: 'transparent',
-                  color: 'var(--color-text-muted)',
-                  fontSize: 11,
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-bg-tertiary)')}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                Sign out
-              </button>
+          {/* Admin upgrade */}
+          {userRole !== 'admin' && (
+            <div style={{ borderBottom: '1px solid var(--color-border)' }}>
+              {!showUpgrade ? (
+                <button
+                  onClick={() => setShowUpgrade(true)}
+                  style={{
+                    display: 'block', width: '100%',
+                    padding: '8px 12px', border: 'none',
+                    backgroundColor: 'transparent',
+                    color: '#ef4444', fontSize: 11, textAlign: 'left', cursor: 'pointer',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-bg-tertiary)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  Upgrade to Admin
+                </button>
+              ) : (
+                <div style={{ padding: '8px 12px' }}>
+                  <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginBottom: 4 }}>Enter admin password:</div>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <input
+                      type="password"
+                      value={upgradePassword}
+                      onChange={(e) => setUpgradePassword(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleUpgrade()}
+                      autoFocus
+                      style={{
+                        flex: 1, padding: '4px 8px', borderRadius: 4,
+                        border: '1px solid var(--color-border)',
+                        backgroundColor: 'var(--color-bg-primary)',
+                        color: 'var(--color-text-primary)',
+                        fontSize: 12, outline: 'none',
+                      }}
+                    />
+                    <button
+                      onClick={handleUpgrade}
+                      style={{
+                        padding: '4px 8px', borderRadius: 4,
+                        border: '1px solid #ef4444',
+                        backgroundColor: 'rgba(239,68,68,0.15)',
+                        color: '#ef4444', fontSize: 11, cursor: 'pointer',
+                      }}
+                    >
+                      Go
+                    </button>
+                  </div>
+                  {upgradeError && (
+                    <div style={{ fontSize: 10, color: '#ef4444', marginTop: 4 }}>{upgradeError}</div>
+                  )}
+                </div>
+              )}
             </div>
           )}
+
+          {/* Sign out */}
+          <button
+            onClick={handleSignOut}
+            style={{
+              display: 'block',
+              width: '100%',
+              padding: '8px 12px',
+              border: 'none',
+              backgroundColor: 'transparent',
+              color: 'var(--color-text-muted)',
+              fontSize: 11,
+              textAlign: 'left',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-bg-tertiary)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            Sign out
+          </button>
         </div>
       )}
     </div>

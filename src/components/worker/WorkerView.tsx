@@ -94,7 +94,7 @@ export function WorkerView({ onSelectGoal }: WorkerViewProps) {
                   <WorkerListItem
                     key={worker.id}
                     worker={worker}
-                    activeTasks={worker.activeTaskIds.map((id) => tasksMap.get(id)).filter(Boolean) as Task[]}
+                    activeTasks={(worker.activeTaskIds ?? []).map((id) => tasksMap.get(id)).filter(Boolean) as Task[]}
                     isSelected={selectedWorkerId === worker.id}
                     onClick={() => setSelectedWorkerId(worker.id)}
                   />
@@ -175,7 +175,7 @@ function WorkerListItem({
             {worker.name}
           </div>
           <div style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
-            {worker.assignedTaskIds.length} task{worker.assignedTaskIds.length !== 1 ? 's' : ''} assigned
+            {(worker.assignedTaskIds?.length ?? 0)} task{(worker.assignedTaskIds?.length ?? 0) !== 1 ? 's' : ''} assigned
           </div>
         </div>
       </div>
@@ -211,14 +211,14 @@ function WorkerDetail({
   onSelectGoal?: (goalId: string) => void;
 }) {
   const dept = departmentsMap.get(worker.departmentId);
-  const activeTasks = worker.activeTaskIds
+  const activeTasks = (worker.activeTaskIds ?? [])
     .map((id) => tasksMap.get(id))
     .filter(Boolean) as Task[];
 
-  const activeTaskIdSet = new Set(worker.activeTaskIds);
+  const activeTaskIdSet = new Set(worker.activeTaskIds ?? []);
 
   // Queue: assigned tasks excluding active ones
-  const queueTasks = worker.assignedTaskIds
+  const queueTasks = (worker.assignedTaskIds ?? [])
     .filter((id) => !activeTaskIdSet.has(id))
     .map((id) => tasksMap.get(id))
     .filter(Boolean) as Task[];

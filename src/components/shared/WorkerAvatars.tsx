@@ -72,7 +72,7 @@ export const WorkerAvatars: React.FC<WorkerAvatarsProps> = ({
   return (
     <div style={containerStyle}>
       {visible.map((worker, index) => {
-        const isActive = worker.activeTaskIds.length > 0;
+        const isActive = (worker.activeTaskIds ?? []).length > 0;
         return (
           <div
             key={worker.id}

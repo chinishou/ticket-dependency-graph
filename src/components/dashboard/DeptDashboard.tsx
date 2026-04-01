@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { useStore } from '../../store/useStore';
 import { ProgressBar } from '../shared/ProgressBar';
 import type { StrategicPriority } from '../../types';
+import { usePermission } from '../../hooks/usePermission';
 
 interface DeptDashboardProps {
   departmentId: string;
@@ -16,6 +17,7 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
 }) => {
   const department = useStore((s) => s.departments.get(departmentId));
   const updateDepartment = useStore((s) => s.updateDepartment);
+  const { canEditPriorities } = usePermission();
   const updateGoal = useStore((s) => s.updateGoal);
   const projects = useStore((s) => s.projects);
   const tasks = useStore((s) => s.tasks);
@@ -41,11 +43,12 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
       .map((id) => workers.get(id))
       .filter(Boolean)
       .map((w) => {
-        const firstActiveTask = w!.activeTaskIds.length > 0 ? tasks.get(w!.activeTaskIds[0]) : null;
+        const activeIds = w!.activeTaskIds ?? [];
+        const firstActiveTask = activeIds.length > 0 ? tasks.get(activeIds[0]) : null;
         return {
           id: w!.id,
           name: w!.name,
-          isActive: w!.activeTaskIds.length > 0,
+          isActive: activeIds.length > 0,
           activeTaskName: firstActiveTask?.name ?? null,
           availability: w!.availability,
         };
@@ -141,7 +144,7 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <h1 style={titleStyle}>{department.name}</h1>
               <div style={{ display: 'flex', gap: 3 }}>
-                {(['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => (
+                {canEditPriorities ? (['P1', 'P2', 'P3'] as StrategicPriority[]).map((p) => (
                   <button
                     key={p}
                     onClick={() => updateDepartment(departmentId, { priority: p })}
@@ -155,7 +158,11 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
                   >
                     {p}
                   </button>
-                ))}
+                )) : (
+                  <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 6, border: '1px solid #f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', fontWeight: 700 }}>
+                    {department.priority}
+                  </span>
+                )}
               </div>
             </div>
             <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 4 }}>
