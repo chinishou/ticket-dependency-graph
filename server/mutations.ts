@@ -232,6 +232,39 @@ export function updateGoal(goalId: string, updates: Record<string, unknown>) {
   });
 }
 
+export function updateDepartment(deptId: string, updates: Record<string, unknown>) {
+  return runTransaction(() => {
+    const existing = getDepartment(deptId);
+    if (!existing) throw new Error(`Department ${deptId} not found`);
+
+    const updated = { ...existing, ...updates };
+    upsertEntity('departments', deptId, updated);
+    return updated;
+  });
+}
+
+export function updateProject(projectId: string, updates: Record<string, unknown>) {
+  return runTransaction(() => {
+    const existing = getProject(projectId);
+    if (!existing) throw new Error(`Project ${projectId} not found`);
+
+    const updated = { ...existing, ...updates };
+    upsertEntity('projects', projectId, updated);
+    return updated;
+  });
+}
+
+export function updateWorker(workerId: string, updates: Record<string, unknown>) {
+  return runTransaction(() => {
+    const existing = getEntity('workers', workerId) as Record<string, unknown> | null;
+    if (!existing) throw new Error(`Worker ${workerId} not found`);
+
+    const updated = { ...existing, ...updates };
+    upsertEntity('workers', workerId, updated);
+    return updated;
+  });
+}
+
 function getDepartment(id: string): Record<string, unknown> | null {
   return getEntity('departments', id) as Record<string, unknown> | null;
 }

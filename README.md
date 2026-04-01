@@ -1,73 +1,67 @@
-# React + TypeScript + Vite
+# Task Tech Tree
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A game-inspired tech tree UI for managing VFX production tasks, goals, milestones, and workers across departments and projects.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Tech Tree View** — React Flow-based directed acyclic graph with dagre auto-layout, custom task/milestone nodes, and dependency visualization
+- **Dashboard** — Drill-down company overview with project/department cards, progress stats, and inline priority controls (P1/P2/P3)
+- **Timeline** — Custom Gantt chart with dependency-based date scheduling, month axis, and today marker
+- **Workers** — Worker list by department with active tasks, unlocks, and priority-sorted queue
+- **Settings** — 5-dimension priority weight configuration with calibration wizard, lead list management, and formula preview
 
-## React Compiler
+## Priority System
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Five weighted dimensions scored 0–100:
 
-## Expanding the ESLint configuration
+| Factor | Input | Scale |
+|--------|-------|-------|
+| **Project** | Strategic priority (P1/P2/P3) | P1=100, P2=67, P3=33 |
+| **Department** | Dept priority (P1/P2/P3) | P1=100, P2=67, P3=33 |
+| **Goal** | Goal priority within dept (1–3) | 1=100, 2=67, 3=33 |
+| **Creator** | Lead status of task creator | Lead=100, Other=50 |
+| **Graph** | Dependency topology + critical path | 0–100 computed |
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Weights are configurable via manual sliders or an 8-question calibration wizard. Tasks also support manual priority overrides.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Data Model
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+Company → Department → Goal → Task / Milestone
+Company → Project  → Goal → Task / Milestone
+Department → Worker → assigned Tasks
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+All entities have bidirectional dependency links maintained atomically by the server.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Tech Stack
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS, Zustand, React Flow
+- **Backend**: Express 5, better-sqlite3
+- **State**: Optimistic mutations with polling-based sync (5s interval)
+
+## Getting Started
+
+```bash
+npm install
+
+# Run both frontend (Vite :5173) and backend (Express :3001)
+npm run dev:all
+
+# Or run individually
+npm run dev          # Frontend only (proxies /api to :3001)
+npm run server       # Backend only
 ```
+
+## Commands
+
+```bash
+npm run dev:all      # Dev servers (frontend + backend)
+npm run dev          # Frontend only
+npm run server       # Backend only
+npm run build        # tsc -b && vite build
+npm run lint         # ESLint
+npm run preview      # Preview production build
+```
+
+No test framework is configured. TypeScript type-checking (`tsc -b`) is the primary validation.

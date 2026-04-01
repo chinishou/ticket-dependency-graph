@@ -14,6 +14,10 @@ import { WorkerView } from './components/worker/WorkerView';
 import { SettingsView } from './components/settings/SettingsView';
 import { MyTasksView } from './components/worker/MyTasksView';
 import { useStore } from './store/useStore';
+import { useNotificationStore } from './store/useNotificationStore';
+import { FloatingTaskDetailPanel } from './components/shared/FloatingTaskDetailPanel';
+import { NotificationCenter } from './components/shared/NotificationCenter';
+import { NotificationToast } from './components/shared/NotificationToast';
 
 type SubViewA = 'goal-map' | 'tech-tree';
 type SubViewB = 'company' | 'project' | 'department';
@@ -23,11 +27,17 @@ function App() {
   const pollForUpdates = useStore((s) => s.pollForUpdates);
   const isConnected = useStore((s) => s.isConnected);
   const userRole = useStore((s) => s.userRole);
+  const userName = useStore((s) => s.userName);
 
   // Fetch state from server on mount
   useEffect(() => {
     fetchState();
   }, [fetchState]);
+
+  // Initialize notifications after store is ready, and reinitialize when user or connection changes
+  useEffect(() => {
+    useNotificationStore.getState().initNotifications();
+  }, [userName, isConnected]);
 
   // Poll for updates every 5 seconds when connected
   useEffect(() => {
@@ -36,14 +46,13 @@ function App() {
     return () => clearInterval(interval);
   }, [isConnected, pollForUpdates]);
 
-  const userName = useStore((s) => s.userName);
-
   const company = useStore((s) => s.company);
   const goalsMap = useStore((s) => s.goals);
   const departmentsMap = useStore((s) => s.departments);
   const projectsMap = useStore((s) => s.projects);
   const setSelectedTask = useStore((s) => s.setSelectedTask);
   const setSelectedMilestone = useStore((s) => s.setSelectedMilestone);
+  const selectedTaskId = useStore((s) => s.selectedTaskId);
 
   const [topView, setTopView] = useState<TopView>(() => getDefaultView(userRole));
   const [subViewA, setSubViewA] = useState<SubViewA>(() => userRole === 'coordinator' ? 'goal-map' : 'tech-tree');
@@ -92,6 +101,18 @@ function App() {
     clearSelection();
     setSubViewA('goal-map');
   }, [clearSelection]);
+
+  const handleGoToTechTree = useCallback((goalId: string, taskId: string) => {
+    clearSelection();
+    setSelectedGoalId(goalId);
+    setSubViewA('tech-tree');
+    setTopView('A');
+    setSelectedTask(taskId);
+  }, [clearSelection, setSelectedTask]);
+
+  const handleCloseFloatingPanel = useCallback(() => {
+    setSelectedTask(null);
+  }, [setSelectedTask]);
 
   // --- View B handlers ---
   const handleSelectProject = useCallback((projectId: string) => {
@@ -188,6 +209,7 @@ function App() {
       breadcrumbs={buildBreadcrumbs()}
       rightContent={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <NotificationCenter />
           {topView === 'A' && subViewA === 'tech-tree' && (
             <button
               onClick={handleGoToGoalMap}
@@ -216,8 +238,9 @@ function App() {
     >
       {/* View F: My Tasks */}
       {topView === 'F' && (
-        <div key="my-tasks" className="view-enter" style={{ width: '100%', height: '100%' }}>
-          <MyTasksView onSelectGoal={handleGoalChange} />
+        <div key="my-tasks" className="view-enter" style={{ width: '100%', height: '100%', position: 'relative' }}>
+          <MyTasksView onSelectGoal={handleGoalChange} onSelectTask={(taskId) => { setSelectedTask(taskId); }} />
+          {selectedTaskId && <FloatingTaskDetailPanel onGoToTechTree={handleGoToTechTree} onClose={handleCloseFloatingPanel} />}
         </div>
       )}
 
@@ -267,15 +290,17 @@ function App() {
 
       {/* View C: Timeline */}
       {topView === 'C' && (
-        <div key="timeline" className="view-enter" style={{ width: '100%', height: '100%' }}>
+        <div key="timeline" className="view-enter" style={{ width: '100%', height: '100%', position: 'relative' }}>
           <TimelineView onSelectGoal={handleGoalChange} />
+          {selectedTaskId && <FloatingTaskDetailPanel onGoToTechTree={handleGoToTechTree} onClose={handleCloseFloatingPanel} />}
         </div>
       )}
 
       {/* View D: Workers */}
       {topView === 'D' && (
-        <div key="workers" className="view-enter" style={{ width: '100%', height: '100%' }}>
-          <WorkerView onSelectGoal={handleGoalChange} />
+        <div key="workers" className="view-enter" style={{ width: '100%', height: '100%', position: 'relative' }}>
+          <WorkerView onSelectGoal={handleGoalChange} onSelectTask={(taskId) => { setSelectedTask(taskId); }} />
+          {selectedTaskId && <FloatingTaskDetailPanel onGoToTechTree={handleGoToTechTree} onClose={handleCloseFloatingPanel} />}
         </div>
       )}
 
@@ -285,6 +310,7 @@ function App() {
           <SettingsView />
         </div>
       )}
+      <NotificationToast />
     </AppShell>
   );
 }

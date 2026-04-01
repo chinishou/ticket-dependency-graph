@@ -6,15 +6,18 @@ import { computeTaskPriorities, getPriorityLabel, getPriorityColor } from '../..
 
 interface WorkerViewProps {
   onSelectGoal?: (goalId: string) => void;
+  onSelectTask?: (taskId: string) => void;
 }
 
-export function WorkerView({ onSelectGoal }: WorkerViewProps) {
+export function WorkerView({ onSelectGoal, onSelectTask }: WorkerViewProps) {
   const workersMap = useStore((s) => s.workers);
   const tasksMap = useStore((s) => s.tasks);
   const goalsMap = useStore((s) => s.goals);
   const milestonesMap = useStore((s) => s.milestones);
   const departmentsMap = useStore((s) => s.departments);
-  const setSelectedTask = useStore((s) => s.setSelectedTask);
+  const storeSetSelectedTask = useStore((s) => s.setSelectedTask);
+
+  const handleSelectTask = onSelectTask ?? storeSetSelectedTask;
 
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [filterDept, setFilterDept] = useState<string>('all');
@@ -114,7 +117,7 @@ export function WorkerView({ onSelectGoal }: WorkerViewProps) {
             goalsMap={goalsMap}
             priorities={priorities}
             departmentsMap={departmentsMap}
-            onSelectTask={setSelectedTask}
+            onSelectTask={handleSelectTask}
             onSelectGoal={onSelectGoal}
           />
         ) : (
@@ -207,7 +210,7 @@ function WorkerDetail({
   goalsMap: Map<string, import('../../types').Goal>;
   priorities: Map<string, import('../../utils/priorityCalc').TaskPriority>;
   departmentsMap: Map<string, import('../../types').Department>;
-  onSelectTask: (id: string | null) => void;
+  onSelectTask: (id: string) => void;
   onSelectGoal?: (goalId: string) => void;
 }) {
   const dept = departmentsMap.get(worker.departmentId);

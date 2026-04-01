@@ -34,6 +34,34 @@ export type ProjectStatus = 'active' | 'completed' | 'on_hold' | 'cancelled';
 
 export type WorkerAvailability = 'full' | 'partial' | 'unavailable';
 
+export type NotificationType =
+  | 'task_assigned'
+  | 'task_status_changed'
+  | 'task_completed'
+  | 'dependency_completed'
+  | 'milestone_unlocked'
+  | 'lock_acquired'
+  | 'lock_released'
+  | 'priority_overridden'
+  | 'priority_override_lifted'
+  | 'calibration_changed';
+
+export type NotificationPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  priority: NotificationPriority;
+  timestamp: string;
+  read: boolean;
+  entityId?: string;
+  entityType?: 'task' | 'milestone' | 'goal' | 'lock';
+  userName?: string;
+  targetUserIds?: string[];
+}
+
 // === Entities ===
 
 export interface Company {

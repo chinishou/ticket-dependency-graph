@@ -6,9 +6,10 @@ import { computeTaskPriorities, getPriorityLabel, getPriorityColor } from '../..
 
 interface MyTasksViewProps {
   onSelectGoal?: (goalId: string) => void;
+  onSelectTask?: (taskId: string) => void;
 }
 
-export function MyTasksView({ onSelectGoal }: MyTasksViewProps) {
+export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
   const userWorkerId = useStore((s) => s.userWorkerId);
   const setUserWorkerId = useStore((s) => s.setUserWorkerId);
   const workersMap = useStore((s) => s.workers);
@@ -113,7 +114,10 @@ export function MyTasksView({ onSelectGoal }: MyTasksViewProps) {
                     padding: 16, borderRadius: 10,
                     backgroundColor: 'var(--color-bg-secondary)',
                     border: `1px solid ${getStatusColor(task.status)}40`,
-                  }}>
+                    cursor: onSelectTask ? 'pointer' : 'default',
+                  }}
+                  onClick={() => onSelectTask?.(task.id)}
+                  >
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>{task.name}</div>
@@ -182,10 +186,12 @@ export function MyTasksView({ onSelectGoal }: MyTasksViewProps) {
                 return (
                   <div
                     key={task.id}
+                    onClick={() => onSelectTask?.(task.id)}
                     style={{
                       padding: '12px 14px',
                       display: 'flex', alignItems: 'center', gap: 10,
                       borderBottom: i < upNextTasks.length - 1 ? '1px solid var(--color-bg-tertiary)' : 'none',
+                      cursor: onSelectTask ? 'pointer' : 'default',
                     }}
                   >
                     <div style={{
@@ -251,9 +257,9 @@ export function MyTasksView({ onSelectGoal }: MyTasksViewProps) {
                 return (
                   <div
                     key={t.id}
-                    onClick={() => onSelectGoal?.(t.goalId)}
+                    onClick={() => onSelectTask ? onSelectTask(t.id) : onSelectGoal?.(t.goalId)}
                     style={{
-                      padding: '10px 14px', cursor: onSelectGoal ? 'pointer' : 'default',
+                      padding: '10px 14px', cursor: onSelectTask || onSelectGoal ? 'pointer' : 'default',
                       display: 'flex', alignItems: 'center', gap: 10,
                       borderBottom: i < unlockedTasks.length - 1 ? '1px solid var(--color-bg-tertiary)' : 'none',
                       transition: 'background-color 0.15s',
@@ -297,6 +303,7 @@ export function MyTasksView({ onSelectGoal }: MyTasksViewProps) {
           tasks={queueTasks}
           goalsMap={goalsMap}
           priorities={priorities}
+          onSelectTask={onSelectTask}
         />
       </div>
     </div>
@@ -409,10 +416,12 @@ function FullQueue({
   tasks,
   goalsMap,
   priorities,
+  onSelectTask,
 }: {
   tasks: Task[];
   goalsMap: Map<string, import('../../types').Goal>;
   priorities: Map<string, import('../../utils/priorityCalc').TaskPriority>;
+  onSelectTask?: (taskId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -444,10 +453,12 @@ function FullQueue({
             return (
               <div
                 key={task.id}
+                onClick={() => onSelectTask?.(task.id)}
                 style={{
                   padding: '8px 14px',
                   display: 'flex', alignItems: 'center', gap: 10,
                   borderBottom: i < tasks.length - 1 ? '1px solid var(--color-bg-tertiary)' : 'none',
+                  cursor: onSelectTask ? 'pointer' : 'default',
                 }}
               >
                 <div style={{

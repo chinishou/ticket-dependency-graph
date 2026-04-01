@@ -4,6 +4,18 @@ import {
   company as mockCompany, departments as mockDepartments, projects as mockProjects,
   goals as mockGoals, tasks as mockTasks, milestones as mockMilestones, workers as mockWorkers,
 } from '../data/mockData';
+import {
+  notifyTaskAssigned,
+  notifyTaskStatusChanged,
+  notifyTaskCompleted,
+  notifyDependencyCompleted,
+  notifyMilestoneUnlocked,
+  notifyLockAcquired,
+  notifyLockReleased,
+  notifyPriorityOverridden,
+  notifyPriorityOverrideLifted,
+  notifyCalibrationChanged,
+} from './useNotificationStore';
 
 interface LockInfo {
   scope: string;
@@ -169,7 +181,14 @@ export const useStore = create<AppState>((set, get) => ({
   setUserName: (name) => {
     if (name) {
       localStorage.setItem('tech-tree-user', name);
-      // Create user tag on server
+      const workers = get().workers;
+      const matchedWorker = Array.from(workers.values()).find(w => w.name === name);
+      if (matchedWorker) {
+        localStorage.setItem('tech-tree-worker-id', matchedWorker.id);
+        set({ userName: name, userWorkerId: matchedWorker.id, adminPassword: get().adminPassword });
+      } else {
+        set({ userName: name, adminPassword: get().adminPassword });
+      }
       fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,7 +196,6 @@ export const useStore = create<AppState>((set, get) => ({
       }).then(async (res) => {
         if (res.ok) {
           const data = await res.json();
-          // Only accept worker/coordinator from DB — admin is session-only via password upgrade
           if (data.role && data.role !== 'admin') {
             localStorage.setItem('tech-tree-role', data.role);
             set({ userRole: data.role });
@@ -188,8 +206,8 @@ export const useStore = create<AppState>((set, get) => ({
       localStorage.removeItem('tech-tree-user');
       localStorage.removeItem('tech-tree-role');
       localStorage.removeItem('tech-tree-worker-id');
+      set({ userName: name, userWorkerId: null, adminPassword: null });
     }
-    set({ userName: name, adminPassword: name ? get().adminPassword : null });
   },
 
   userRole: (() => {
@@ -261,6 +279,7 @@ export const useStore = create<AppState>((set, get) => ({
         const locks = new Map(get().locks);
         locks.set(scope, { scope, lockedBy: userName, lockedAt: new Date().toISOString(), expiresAt: '' });
         set({ locks });
+        notifyLockAcquired(scope, userName);
         return { success: true };
       }
       return { success: false, lockedBy: data.lockedBy };
@@ -272,16 +291,20 @@ export const useStore = create<AppState>((set, get) => ({
   releaseLock: async (scope) => {
     const userName = get().userName;
     if (!userName) return;
+    const existingLock = get().locks.get(scope);
     try {
       await fetch('/api/locks/release', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope, userName }),
       });
-    } catch {}
+    } catch { /* server unavailable */ }
     const locks = new Map(get().locks);
     locks.delete(scope);
     set({ locks });
+    if (existingLock) {
+      notifyLockReleased(scope, existingLock.lockedBy);
+    }
   },
 
   presence: [],
@@ -295,7 +318,7 @@ export const useStore = create<AppState>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope, userName }),
       });
-    } catch {}
+    } catch { /* presence is non-critical */ }
   },
 
   leavePresence: async (scope) => {
@@ -307,7 +330,7 @@ export const useStore = create<AppState>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope, userName }),
       });
-    } catch {}
+    } catch { /* presence is non-critical */ }
   },
 
   getOtherViewers: (scope) => {
@@ -330,19 +353,28 @@ export const useStore = create<AppState>((set, get) => ({
       const res = await fetch('/api/state');
       if (res.ok) {
         const data = await res.json();
-        set({
+        const updates: Partial<AppState> = {
           ...applyEntities(data.entities),
           locks: applyLocks(data.locks),
           presence: data.presence || [],
           lastModified: data.lastModified,
           isConnected: true,
           isLoading: false,
-        });
+        };
+        const currentUserName = get().userName;
+        if (currentUserName) {
+          const workers = new Map(Object.entries(data.entities?.workers || {})) as Map<string, Worker>;
+          const matchedWorker = Array.from(workers.values()).find(w => w.name === currentUserName);
+          if (matchedWorker) {
+            updates.userWorkerId = matchedWorker.id;
+            localStorage.setItem('tech-tree-worker-id', matchedWorker.id);
+          }
+        }
+        set(updates);
       } else {
         set({ isConnected: false, isLoading: false });
       }
     } catch {
-      // Server not available — keep mock data
       set({ isConnected: false, isLoading: false });
     }
   },
@@ -465,6 +497,27 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
+    if (updates.status && updates.status !== existing.status) {
+      notifyTaskStatusChanged(existing.name, existing.status, updates.status, get().userName, existing.assignedWorkerIds);
+      if (updates.status === 'completed') {
+        notifyTaskCompleted(existing.name, get().userName, existing.assignedWorkerIds);
+        for (const childId of existing.unlocksTaskIds) {
+          const child = newTasks.get(childId);
+          if (child && child.status === 'locked') {
+            notifyDependencyCompleted(existing.name, child.name, child.assignedWorkerIds);
+          }
+        }
+      }
+    }
+
+    if (updates.assignedWorkerIds && updates.assignedWorkerIds !== existing.assignedWorkerIds) {
+      const newWorkerIds = updates.assignedWorkerIds.filter(id => !existing.assignedWorkerIds.includes(id));
+      if (newWorkerIds.length > 0) {
+        const workerNames = newWorkerIds.map(id => get().workers.get(id)?.name ?? id);
+        notifyTaskAssigned(existing.name, get().userName, workerNames, newWorkerIds);
+      }
+    }
+
     set({ tasks: newTasks });
     serverMutation('updateTask', { entityId: taskId, updates }, set, get);
   },
@@ -539,6 +592,11 @@ export const useStore = create<AppState>((set, get) => ({
           });
         }
       }
+    }
+
+    if (updates.unlocked === true && existing.unlocked !== true) {
+      const targetWorkerIds = existing.unlocksTaskIds.flatMap(taskId => newTasks.get(taskId)?.assignedWorkerIds ?? []);
+      notifyMilestoneUnlocked(existing.name, get().userName ?? 'unknown', targetWorkerIds);
     }
 
     set({ milestones: newMilestones, tasks: newTasks });
@@ -730,6 +788,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setCalibrationWeights: (weights) => {
+    notifyCalibrationChanged(get().userName ?? 'unknown');
     set({ calibrationWeights: weights });
   },
 
@@ -738,7 +797,8 @@ export const useStore = create<AppState>((set, get) => ({
     const task = newTasks.get(taskId);
     if (!task) return;
 
-    // We don't know the computed score here — caller should pass it via the score param
+    notifyPriorityOverridden(task.name, get().userName ?? 'unknown', reason, task.assignedWorkerIds);
+
     newTasks.set(taskId, {
       ...task,
       priorityOverride: {
@@ -746,7 +806,7 @@ export const useStore = create<AppState>((set, get) => ({
         setBy: get().userName ?? 'unknown',
         setAt: new Date().toISOString(),
         reason,
-        previousComputedScore: 0, // caller should provide real value
+        previousComputedScore: 0,
       },
     });
     set({ tasks: newTasks });
@@ -757,6 +817,8 @@ export const useStore = create<AppState>((set, get) => ({
     const newTasks = new Map(get().tasks);
     const task = newTasks.get(taskId);
     if (!task || !task.priorityOverride) return;
+
+    notifyPriorityOverrideLifted(task.name, get().userName ?? 'unknown', task.assignedWorkerIds);
 
     newTasks.set(taskId, {
       ...task,

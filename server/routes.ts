@@ -7,6 +7,7 @@ import {
 } from './db';
 import {
   updateTask, updateMilestone, updateGoal,
+  updateDepartment, updateProject, updateWorker,
   addGoal, addMilestone,
   addTaskToGoal, removeTaskFromGoal,
 } from './mutations';
@@ -121,6 +122,15 @@ router.post('/mutations/:type', (req, res) => {
         break;
       case 'updateGoal':
         result = updateGoal(body.entityId, body.updates);
+        break;
+      case 'updateDepartment':
+        result = updateDepartment(body.entityId, body.updates);
+        break;
+      case 'updateProject':
+        result = updateProject(body.entityId, body.updates);
+        break;
+      case 'updateWorker':
+        result = updateWorker(body.entityId, body.updates);
         break;
       case 'addGoal':
         result = addGoal(body.goal);

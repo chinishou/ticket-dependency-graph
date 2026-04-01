@@ -189,9 +189,9 @@ PROJECT: Dragon Quest
 
 ## Priority System
 
-### Three Dimensions of Priority
+### Four Dimensions of Priority
 
-Priority operates at three independent but interacting levels:
+Priority is determined by four independent but interacting dimensions:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -199,14 +199,15 @@ Priority operates at three independent but interacting levels:
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  ┌───────────────────────────────────────────────────────────────────┐ │
-│  │ 1. STRATEGIC PRIORITY (Company/Leadership sets)                   │ │
+│  │ 1. PROJECT PRIORITY (Company/Leadership sets)                     │ │
 │  │                                                                   │ │
 │  │    "What matters most to the business"                            │ │
 │  │                                                                   │ │
 │  │    P1: CRITICAL   Production blockers, client deadlines          │ │
 │  │    P2: HIGH       Important improvements, near-term needs        │ │
 │  │    P3: MEDIUM     Scheduled work, nice to have                   │ │
-│  │    P4: LOW        Backlog, when-we-have-time                     │ │
+│  │                                                                   │ │
+│  │    Maps to ProjectFactor: P1→100, P2→66.7, P3→33.3              │ │
 │  │                                                                   │ │
 │  └───────────────────────────────────────────────────────────────────┘ │
 │                                                                         │
@@ -215,714 +216,376 @@ Priority operates at three independent but interacting levels:
 │  │                                                                   │ │
 │  │    "Within our team, what do we tackle first"                     │ │
 │  │                                                                   │ │
-│  │    • Ranking within department's own goals                        │ │
-│  │    • Can reorder within same strategic tier                       │ │
-│  │    • Considers team expertise and availability                    │ │
+│  │    1: Top priority within department                              │ │
+│  │    2: Normal priority                                             │ │
+│  │    3: Low priority                                                │ │
+│  │                                                                   │ │
+│  │    Maps to DeptFactor: 1→100, 2→66.7, 3→33.3                    │ │
 │  │                                                                   │ │
 │  └───────────────────────────────────────────────────────────────────┘ │
 │                                                                         │
 │  ┌───────────────────────────────────────────────────────────────────┐ │
-│  │ 3. WORKER PRIORITY (Worker/Lead sets)                             │ │
+│  │ 3. TICKET-CREATOR PRIORITY (Automatic from creator role)          │ │
 │  │                                                                   │ │
-│  │    "Among my assigned tasks, what do I focus on"                  │ │
+│  │    "Who created the ticket affects its weight"                    │ │
 │  │                                                                   │ │
-│  │    • Personal queue ordering                                      │ │
-│  │    • Active task selection                                        │ │
-│  │    • Should align with strategic priority                         │ │
+│  │    Lead (isLead=true):  CreatorFactor = 100                      │ │
+│  │    Non-lead:            CreatorFactor = 50                        │ │
+│  │                                                                   │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │ 4. COMPUTED TICKET PRIORITY (Automatic, overridable)              │ │
+│  │                                                                   │ │
+│  │    Weighted composite of all four factors                         │ │
+│  │    Can be overridden by authorized users                          │ │
+│  │    Override freezes displayed score; computed score continues     │ │
+│  │    updating in background (drift indicator)                       │ │
 │  │                                                                   │ │
 │  └───────────────────────────────────────────────────────────────────┘ │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Priority Scale Reference
+
+| Dimension | Values | Factor Formula | Example |
+|-----------|--------|---------------|---------|
+| Project Priority | P1, P2, P3 | `(4 - rank) / 3 x 100` | P1->100, P2->66.7, P3->33.3 |
+| Department Priority | 1, 2, 3 | `(4 - deptPri) / 3 x 100` | 1->100, 2->66.7, 3->33.3 |
+| Creator Priority | lead, non-lead | `isLead ? 100 : 50` | lead->100, non-lead->50 |
+| Graph Factor | 0-100 (computed) | backward propagation | downstream + critical path |
+
 ### How Priorities Interact
 
 ```
-            STRATEGIC           DEPT              WORKER
-            (Company)          (Head)            (Personal)
-                │                │                  │
-                ▼                ▼                  ▼
-           ┌────────┐      ┌────────┐        ┌────────────┐
-           │        │      │        │        │            │
-Project A  │   P1   │      │   #1   │        │ ● Task 1   │ ← Active
-└─ Goal X  │        │  ──▶ │   #2   │   ──▶  │   Task 3   │
-   └─ Task 1        │      │        │        │   Task 7   │
-   └─ Task 2        │      │        │        │            │
-           │        │      │        │        │            │
-Dept Goal Y│   P2   │      │   #1   │        │            │
-└─ Task 3  │        │      │        │        │            │
-           │        │      │        │        │            │
-Dept Goal Z│   P3   │      │   #2   │        │            │
-└─ Task 7  │        │      │        │        │            │
-           └────────┘      └────────┘        └────────────┘
+            PROJECT             DEPT              CREATOR         GRAPH
+            (Leadership)       (Head)            (Auto)          (Computed)
+                |                |                  |                |
+                v                v                  v                v
+           +--------+      +--------+        +------------+  +----------+
+           |        |      |        |        |            |  |          |
+Project A  |   P1   |      |   1    |        |  Lead=100  |  | GF=75   |
+- Goal X   |  w=0.30|  +   |  w=0.25|   +    |  w=0.10   |+ | w=0.35  |
+   - Task  |  =30.0 |      |  =25.0 |        |  =10.0    |  | =26.25  |
+           |        |      |        |        |            |  |          |
+           +--------+      +--------+        +------------+  +----------+
+                                                                    |
+                                                                    v
+                                                         ComputedScore = 91.25
 
-EFFECTIVE PRIORITY = f(Strategic, Dept Rank, Dependencies, Deadline)
+EFFECTIVE SCORE = override.score ?? ComputedScore
 ```
 
 ### Priority Rules
 
 | Rule | Description |
 |------|-------------|
-| **Strategic Override** | P1 tasks always surface to top of all views |
+| **P1 Surface** | P1 tasks always surface to top of all views |
 | **Tier Reordering** | Department can reorder within same strategic tier |
-| **Worker Alignment** | Workers should activate P1 tasks before P3 tasks |
-| **Mismatch Warning** | System warns if worker priority violates strategic |
-| **Deadline Escalation** | Approaching deadline can auto-suggest priority bump |
-| **Blocker Boost** | Tasks blocking many others get priority weight |
+| **Worker Alignment** | Workers should activate highest-score tasks first |
+| **Mismatch Warning** | System warns if worker priority violates computed order |
+| **Deadline Escalation** | Approaching deadline increases graph factor |
+| **Blocker Boost** | Tasks blocking many others get higher graph factor |
+| **Override Freeze** | Overridden scores stay frozen; drift indicator shows gap |
 
 ### Priority Mismatch Detection
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  ⚠️  PRIORITY MISMATCH DETECTED                                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  Worker: Alice Chen                                                     │
-│                                                                         │
-│  Currently Active:                                                      │
-│  └── Task: "Update USD Docs" (P3 - Low)                                │
-│                                                                         │
-│  Higher Priority Available:                                             │
-│  └── Task: "Sublayer Caching" (P1 - Critical)                          │
-│      └── Project: Dragon Quest (Deadline: 2 weeks)                     │
-│                                                                         │
-│  Recommendation: Switch active task to align with strategic priority   │
-│                                                                         │
-│  [Switch Now]  [Dismiss]  [Explain Reason]                             │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------------------+
+|  Warning: PRIORITY MISMATCH DETECTED                                     |
++-------------------------------------------------------------------------+
+|                                                                         |
+|  Worker: Alice Chen                                                     |
+|                                                                         |
+|  Currently Active:                                                      |
+|  -- Task: "Update USD Docs" (Score: 32 - Medium)                       |
+|                                                                         |
+|  Higher Priority Available:                                             |
+|  -- Task: "Sublayer Caching" (Score: 86 - Critical)                    |
+|      -- Project: Dragon Quest (P1) / Dept: 1 / Created by: Lead       |
+|                                                                         |
+|  Recommendation: Switch active task to align with computed priority    |
+|                                                                         |
+|  [Switch Now]  [Dismiss]  [Explain Reason]                             |
+|                                                                         |
++-------------------------------------------------------------------------+
 ```
 
 ---
 
 ## Priority Calculation
 
-### Overview
-
-Priority is calculated using a hybrid approach:
-1. **Manual inputs** - Set by leadership/leads for strategic items
-2. **Automatic calculation** - Derived by working backward from manual inputs
-
-**Core Rule:** *The shorter the time required to unlock more items, the higher the priority.*
-
-This means: Tasks that quickly unlock high-value downstream work should be done first.
-
-### Manual vs Calculated
+### The Composite Formula
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    MANUAL vs CALCULATED PRIORITY                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─── MANUALLY SET (by humans) ─────────────────────────────────────────┐  │
-│  │                                                                       │  │
-│  │  • Project strategic priority (P1-P4)                                │  │
-│  │  • Project deadline                                                   │  │
-│  │  • Milestone due dates                                                │  │
-│  │  • Milestone value weight (optional, default = 1.0)                  │  │
-│  │  • Goal strategic priority (inherits from project if not set)        │  │
-│  │  • Task base duration (estimate)                                     │  │
-│  │  • Task dependencies (what blocks what)                              │  │
-│  │                                                                       │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│                              │                                              │
-│                              ▼                                              │
-│                    ┌─────────────────────┐                                  │
-│                    │  BACKWARD           │                                  │
-│                    │  PROPAGATION        │                                  │
-│                    │  ALGORITHM          │                                  │
-│                    └─────────────────────┘                                  │
-│                              │                                              │
-│                              ▼                                              │
-│                                                                             │
-│  ┌─── AUTOMATICALLY CALCULATED ─────────────────────────────────────────┐  │
-│  │                                                                       │  │
-│  │  • Task downstream impact score                                      │  │
-│  │  • Task urgency factor (from deadlines)                              │  │
-│  │  • Task effective priority score                                     │  │
-│  │  • Recommended work order                                            │  │
-│  │  • Critical path identification                                      │  │
-│  │  • Bottleneck warnings                                               │  │
-│  │                                                                       │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------------+
+|                     COMPOSITE PRIORITY FORMULA                              |
++-----------------------------------------------------------------------------+
+|                                                                             |
+|  ComputedScore = w_proj x PF + w_dept x DF + w_creator x CF + w_graph x GF |
+|                                                                             |
+|  WHERE:                                                                     |
+|                                                                             |
+|  PF (ProjectFactor)  = (4 - rank) / 3 x 100                               |
+|     P1 -> 100, P2 -> 66.7, P3 -> 33.3                                     |
+|                                                                             |
+|  DF (DeptFactor)     = (4 - deptPriority) / 3 x 100                       |
+|     1 -> 100, 2 -> 66.7, 3 -> 33.3                                        |
+|                                                                             |
+|  CF (CreatorFactor)  = isLead ? 100 : 50                                   |
+|     Lead -> 100, Non-lead -> 50                                            |
+|                                                                             |
+|  GF (GraphFactor)    = backward-propagation score (0-100)                  |
+|     See "GraphFactor: Backward Propagation" below                          |
+|                                                                             |
+|  DEFAULT WEIGHTS (when no calibration performed):                          |
+|     w_proj = 0.30   w_dept = 0.25   w_creator = 0.10   w_graph = 0.35    |
+|                                                                             |
+|  EFFECTIVE SCORE:                                                           |
+|     = task.priorityOverride.score  (if override set)                       |
+|     = ComputedScore               (otherwise)                              |
+|                                                                             |
++-----------------------------------------------------------------------------+
 ```
 
-### The Priority Formula
+### GraphFactor: Backward Propagation Detail
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         PRIORITY SCORE FORMULA                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│                     Downstream Impact  ×  Urgency Factor                    │
-│  Priority Score = ─────────────────────────────────────────                 │
-│                              ETA (days)                                     │
-│                                                                             │
-│                                                                             │
-│  WHERE:                                                                     │
-│                                                                             │
-│  ┌─── Downstream Impact ────────────────────────────────────────────────┐  │
-│  │                                                                       │  │
-│  │  The total "value" this task helps unlock.                           │  │
-│  │                                                                       │  │
-│  │  Impact = Σ (child_value × contribution_weight)                      │  │
-│  │                                                                       │  │
-│  │  For each thing this task unlocks:                                   │  │
-│  │  • Direct child task: inherits that task's impact (recursive)        │  │
-│  │  • Milestone: uses milestone's value weight × strategic multiplier   │  │
-│  │  • Partial contribution: divided by number of parents                │  │
-│  │                                                                       │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│  ┌─── Urgency Factor ───────────────────────────────────────────────────┐  │
-│  │                                                                       │  │
-│  │  How soon the downstream deadline is.                                │  │
-│  │                                                                       │  │
-│  │  Urgency = 1 + (urgency_boost / days_until_deadline)                 │  │
-│  │                                                                       │  │
-│  │  • No deadline: Urgency = 1.0 (neutral)                              │  │
-│  │  • 30 days out: Urgency ≈ 1.3                                        │  │
-│  │  • 7 days out:  Urgency ≈ 2.4                                        │  │
-│  │  • 1 day out:   Urgency ≈ 11.0                                       │  │
-│  │  • Overdue:     Urgency = MAX (capped at 20.0)                       │  │
-│  │                                                                       │  │
-│  │  Default urgency_boost = 10                                          │  │
-│  │                                                                       │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│  ┌─── ETA (Estimated Time to Complete) ─────────────────────────────────┐  │
-│  │                                                                       │  │
-│  │  Based on current workers assigned.                                  │  │
-│  │                                                                       │  │
-│  │  ETA = base_duration / (workers ^ parallelization_factor)            │  │
-│  │                                                                       │  │
-│  │  If no workers assigned, use base_duration.                          │  │
-│  │  Minimum ETA = 0.5 days (to avoid division issues)                   │  │
-│  │                                                                       │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│  ┌─── Strategic Multiplier ─────────────────────────────────────────────┐  │
-│  │                                                                       │  │
-│  │  Converts P1-P4 to numeric weight:                                   │  │
-│  │                                                                       │  │
-│  │  P1 (Critical) = 8.0                                                 │  │
-│  │  P2 (High)     = 4.0                                                 │  │
-│  │  P3 (Medium)   = 2.0                                                 │  │
-│  │  P4 (Low)      = 1.0                                                 │  │
-│  │                                                                       │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+The GraphFactor (GF) is a 0-100 score computed by backward propagation from goal milestones. It captures how much downstream work a task unlocks and whether it sits on the critical path.
 
-### Backward Propagation Algorithm
+**Components of GF (0-100):**
 
-The algorithm works backward from milestones/goals to calculate task priorities:
+| Component | Range | Description |
+|-----------|-------|-------------|
+| Downstream count | 0-40 | `(transitiveDownstream / maxDownstream) x 40` |
+| Goal priority | 0-30 | `max(0, 30 - (goalDeptPriority - 1) x 10)` |
+| Critical path | 0 or 20 | 20 if on longest chain to a goal milestone |
+| Status bonus | 0 or 10 | 10 if task is `in_progress` (already committed) |
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    BACKWARD PROPAGATION ALGORITHM                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  STEP 1: ASSIGN BASE VALUES TO ENDPOINTS                                    │
-│  ────────────────────────────────────────                                   │
-│                                                                             │
-│  For each Milestone:                                                        │
-│    base_value = milestone_weight × strategic_multiplier(parent_priority)   │
-│    deadline = milestone.due_date OR parent_project.deadline                │
-│                                                                             │
-│  Example:                                                                   │
-│    Milestone "USD Ready" under Project "Dragon Quest" (P1)                 │
-│    base_value = 1.0 × 8.0 = 8.0                                            │
-│    deadline = Apr 1                                                         │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  STEP 2: PROPAGATE VALUES BACKWARD                                          │
-│  ─────────────────────────────────────                                      │
-│                                                                             │
-│  Working backward from milestones to their required tasks:                  │
-│                                                                             │
-│     ┌─────────┐      ┌─────────┐      ┌─────────────────┐                  │
-│     │ Task A  │─────▶│ Task C  │─────▶│ ⭐ Milestone    │                  │
-│     └─────────┘      └─────────┘      │   value = 8.0   │                  │
-│     ┌─────────┐          │            │   deadline=Apr1 │                  │
-│     │ Task B  │──────────┘            └─────────────────┘                  │
-│     └─────────┘                                                             │
-│                                                                             │
-│  Task C: direct parent of milestone                                         │
-│    contribution = 8.0 / 1 (only parent) = 8.0                              │
-│    inherits deadline = Apr 1                                                │
-│                                                                             │
-│  Task A: parent of Task C                                                   │
-│    contribution = 8.0 / 2 (shares with Task B) = 4.0                       │
-│    inherits deadline = Apr 1 minus Task C duration                         │
-│                                                                             │
-│  Task B: parent of Task C                                                   │
-│    contribution = 8.0 / 2 = 4.0                                            │
-│    inherits deadline = Apr 1 minus Task C duration                         │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  STEP 3: AGGREGATE MULTIPLE DOWNSTREAM PATHS                                │
-│  ────────────────────────────────────────────                               │
-│                                                                             │
-│  If a task unlocks multiple things, SUM all contributions:                  │
-│                                                                             │
-│     ┌─────────┐      ┌─────────┐                                           │
-│     │ Task A  │─────▶│ Task B  │────▶ ⭐ Milestone 1 (value=8)             │
-│     │         │      └─────────┘                                           │
-│     │         │      ┌─────────┐                                           │
-│     │         │─────▶│ Task C  │────▶ ⭐ Milestone 2 (value=4)             │
-│     │         │      └─────────┘                                           │
-│     │         │                                                             │
-│     │         │─────▶ ⭐ Milestone 3 (value=2)                              │
-│     └─────────┘                                                             │
-│                                                                             │
-│  Task A total impact:                                                       │
-│    = (8.0 contribution from path to M1)                                    │
-│    + (4.0 contribution from path to M2)                                    │
-│    + (2.0 direct contribution to M3)                                       │
-│    = 14.0                                                                   │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  STEP 4: CALCULATE FINAL PRIORITY SCORE                                     │
-│  ────────────────────────────────────────                                   │
-│                                                                             │
-│  For each task:                                                             │
-│    downstream_impact = sum of all propagated values                        │
-│    urgency = 1 + (10 / days_until_earliest_deadline)                       │
-│    eta = base_duration / (workers ^ parallelization_factor)                │
-│                                                                             │
-│    priority_score = (downstream_impact × urgency) / eta                    │
-│                                                                             │
-│  Higher score = higher priority = do this first                            │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+The backward propagation algorithm works from milestones to their required tasks:
+
+1. **Assign base values to milestones** using `weight x strategic_multiplier`
+2. **Propagate backward** through dependency chains, splitting contribution by parent count
+3. **Aggregate paths** - tasks unlocking multiple things sum all contributions
+4. **Identify critical path** - longest dependency chain to any goal milestone
+
+### Permutation Matrix
+
+All 18 combinations (3 project x 3 dept x 2 creator) with default weights and GF=60:
+
+| # | Proj | Dept | Creator | GF | PFx0.30 | DFx0.25 | CFx0.10 | GFx0.35 | Score | Rank |
+|---|------|------|---------|----|---------|---------|---------|---------|-------|------|
+| 1 | P1 | 1 | lead | 60 | 30.0 | 25.0 | 10.0 | 21.0 | **86** | 1 |
+| 2 | P1 | 1 | non-lead | 60 | 30.0 | 25.0 | 5.0 | 21.0 | **81** | 2 |
+| 3 | P1 | 2 | lead | 60 | 30.0 | 16.7 | 10.0 | 21.0 | **78** | 3 |
+| 4 | P1 | 2 | non-lead | 60 | 30.0 | 16.7 | 5.0 | 21.0 | **73** | 4 |
+| 5 | P1 | 3 | lead | 60 | 30.0 | 8.3 | 10.0 | 21.0 | **69** | 5 |
+| 6 | P2 | 1 | lead | 60 | 20.0 | 25.0 | 10.0 | 21.0 | **76** | - |
+| 7 | P1 | 3 | non-lead | 60 | 30.0 | 8.3 | 5.0 | 21.0 | **64** | - |
+| 8 | P2 | 1 | non-lead | 60 | 20.0 | 25.0 | 5.0 | 21.0 | **71** | - |
+| 9 | P2 | 2 | lead | 60 | 20.0 | 16.7 | 10.0 | 21.0 | **68** | - |
+| 10 | P2 | 2 | non-lead | 60 | 20.0 | 16.7 | 5.0 | 21.0 | **63** | - |
+| 11 | P2 | 3 | lead | 60 | 20.0 | 8.3 | 10.0 | 21.0 | **59** | - |
+| 12 | P2 | 3 | non-lead | 60 | 20.0 | 8.3 | 5.0 | 21.0 | **54** | - |
+| 13 | P3 | 1 | lead | 60 | 10.0 | 25.0 | 10.0 | 21.0 | **66** | - |
+| 14 | P3 | 1 | non-lead | 60 | 10.0 | 25.0 | 5.0 | 21.0 | **61** | - |
+| 15 | P3 | 2 | lead | 60 | 10.0 | 16.7 | 10.0 | 21.0 | **58** | - |
+| 16 | P3 | 2 | non-lead | 60 | 10.0 | 16.7 | 5.0 | 21.0 | **53** | - |
+| 17 | P3 | 3 | lead | 60 | 10.0 | 8.3 | 10.0 | 21.0 | **49** | - |
+| 18 | P3 | 3 | non-lead | 60 | 10.0 | 8.3 | 5.0 | 21.0 | **44** | 18 |
+
+**With GF=90** (high graph topology), rankings shift significantly - tasks with strong downstream impact can outrank higher-tier projects:
+
+| # | Proj | Dept | Creator | GF | Score (GF=90) | vs GF=60 |
+|---|------|------|---------|----|---------------|----------|
+| 1 | P1 | 1 | lead | 90 | **97** | +11 |
+| 13 | P3 | 1 | lead | 90 | **77** | +11 |
+| 17 | P3 | 3 | lead | 90 | **60** | +11 |
+| 18 | P3 | 3 | non-lead | 90 | **55** | +11 |
+
+Key insight: A P3/Dept=1/lead task with GF=90 (score=77) outranks a P1/Dept=3/non-lead task with GF=60 (score=64).
+
+### Weight Calibration (Admin-Driven)
+
+Weights are adjustable via an admin calibration workflow. Six scenario-based questions are presented during setup. The admin picks a winner for each head-to-head comparison, and the system derives weight values that satisfy their preferences.
+
+**No pre-decided expected results** - the weights adapt to the admin's choices.
+
+#### Calibration Questions
+
+| # | Scenario | What It Constrains |
+|---|----------|--------------------|
+| 1 | "A lead creates a P3 ticket vs a non-lead creates a P1 ticket - which should be prioritized?" | `w_creator` vs `w_proj` |
+| 2 | "Dept=1/Proj=P2 ticket vs Dept=2/Proj=P1 ticket, same creator and graph - which wins?" | `w_proj` vs `w_dept` |
+| 3 | "P3 ticket that blocks 12 downstream tasks vs P1 ticket with no downstream - which wins?" | `w_graph` vs `w_proj` |
+| 4 | "Lead's Dept=3 ticket vs non-lead's Dept=1 ticket, same project and graph - which wins?" | `w_creator` vs `w_dept` |
+| 5 | "P2/Dept=2/high-graph ticket vs P1/Dept=3/low-graph ticket - which wins?" | All four weights |
+| 6 | "Two identical tickets except one is on the critical path (GF=90) and the other isn't (GF=30) - how much should graph matter?" | `w_graph` floor/ceiling |
+
+For question 6, the admin picks from: "Critical path always wins" / "Critical path is a tiebreaker" / "Somewhere in between".
+
+#### Weight Derivation Algorithm
+
+- Each answer produces a linear inequality constraint on the weight vector
+- System solves via constrained adjustment (weights must sum to 1, each >= 0.05)
+- If constraints are contradictory, the system reports which answers conflict and asks admin to resolve
+- Default weights (`0.30 / 0.25 / 0.10 / 0.35`) used when no calibration has been performed
+
+```typescript
+interface CalibrationWeights {
+  project: number;   // default 0.30
+  dept: number;      // default 0.25
+  creator: number;   // default 0.10
+  graph: number;     // default 0.35
+}
 ```
 
-### Contribution Weight Calculation
+### Override Workflow
 
-When a task has multiple parents, the contribution is divided:
+Authorized users can override a task's computed priority score. The override freezes the displayed score while the computed score continues updating in the background. A drift indicator shows how far the override has diverged from the current computed score.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    CONTRIBUTION WEIGHT RULES                                │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  RULE 1: SINGLE PARENT                                                      │
-│  ─────────────────────                                                      │
-│                                                                             │
-│     ┌───────┐         ┌───────┐                                            │
-│     │ TaskA │────────▶│ TaskB │                                            │
-│     └───────┘         └───────┘                                            │
-│                       value=10                                              │
-│                                                                             │
-│     Task A contribution = 10 / 1 = 10.0 (100%)                             │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  RULE 2: MULTIPLE PARENTS (EQUAL SPLIT)                                     │
-│  ───────────────────────────────────────                                    │
-│                                                                             │
-│     ┌───────┐                                                               │
-│     │ TaskA │────────┐                                                      │
-│     └───────┘        │                                                      │
-│                      ▼                                                      │
-│     ┌───────┐   ┌───────┐                                                  │
-│     │ TaskB │──▶│ TaskC │                                                  │
-│     └───────┘   └───────┘                                                  │
-│                 value=10                                                    │
-│     ┌───────┐        ▲                                                      │
-│     │ TaskD │────────┘                                                      │
-│     └───────┘                                                               │
-│                                                                             │
-│     Each parent contribution = 10 / 3 = 3.33 (33% each)                    │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  RULE 3: WEIGHTED SPLIT BY DURATION (ADVANCED)                              │
-│  ──────────────────────────────────────────────                             │
-│                                                                             │
-│  Shorter tasks get more credit (they unlock faster):                       │
-│                                                                             │
-│     ┌───────┐                                                               │
-│     │ TaskA │ 2 days ──────┐                                               │
-│     └───────┘              │                                                │
-│                            ▼                                                │
-│     ┌───────┐         ┌───────┐                                            │
-│     │ TaskB │ 8 days ─│ TaskC │                                            │
-│     └───────┘         └───────┘                                            │
-│                       value=10                                              │
-│                                                                             │
-│     Weight A = 1/2 = 0.5                                                   │
-│     Weight B = 1/8 = 0.125                                                 │
-│     Total = 0.625                                                           │
-│                                                                             │
-│     Task A contribution = 10 × (0.5 / 0.625) = 8.0 (80%)                   │
-│     Task B contribution = 10 × (0.125 / 0.625) = 2.0 (20%)                 │
-│                                                                             │
-│     "Shorter time to unlock more" = higher contribution ✓                  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+#### Override Data Model
+
+```typescript
+interface PriorityOverride {
+  score: number;                // frozen display score (0-100)
+  setBy: string;                // worker ID
+  setAt: string;                // ISO timestamp
+  reason: string;               // required justification
+  previousComputedScore: number; // snapshot at override time
+}
+
+// On Task:
+//   priorityOverride?: PriorityOverride
+//   createdBy?: string  // worker ID of ticket creator
+
+// On Worker:
+//   isLead?: boolean
 ```
 
-### Complete Calculation Example
+#### Override Permissions
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    COMPLETE CALCULATION EXAMPLE                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  PROJECT: Dragon Quest                                                      │
-│  Strategic Priority: P1 (multiplier = 8.0)                                 │
-│  Deadline: Jun 1 (78 days away)                                            │
-│                                                                             │
-│  DEPENDENCY GRAPH:                                                          │
-│                                                                             │
-│     ┌───────────┐                                                           │
-│     │ USD Setup │ 5 days                                                   │
-│     │   (DONE)  │                                                           │
-│     └─────┬─────┘                                                           │
-│       ┌───┴───────────┐                                                     │
-│       ▼               ▼                                                     │
-│  ┌──────────┐   ┌──────────┐                                               │
-│  │ Sublayer │   │  Asset   │                                               │
-│  │ Caching  │   │ Resolver │                                               │
-│  │ 10 days  │   │ 15 days  │                                               │
-│  │ 👥2      │   │ 👥1      │                                               │
-│  └────┬─────┘   └────┬─────┘                                               │
-│       │              │                                                      │
-│       └──────┬───────┘                                                      │
-│              ▼                                                              │
-│       ┌──────────────┐                                                      │
-│       │ Shot Assembly│                                                      │
-│       │   15 days    │                                                      │
-│       │   (locked)   │                                                      │
-│       └──────┬───────┘                                                      │
-│              │                                                              │
-│              ▼                                                              │
-│       ┌──────────────┐                                                      │
-│       │ ⭐ USD Ready │                                                      │
-│       │  Milestone   │                                                      │
-│       │ weight = 1.0 │                                                      │
-│       │ due: Apr 15  │                                                      │
-│       └──────────────┘                                                      │
-│        (23 days away)                                                       │
-│                                                                             │
-│  ═══════════════════════════════════════════════════════════════════════   │
-│                                                                             │
-│  STEP 1: MILESTONE BASE VALUE                                               │
-│  ─────────────────────────────                                              │
-│                                                                             │
-│  ⭐ USD Ready:                                                              │
-│     base_value = weight(1.0) × strategic_multiplier(8.0) = 8.0             │
-│     deadline = Apr 15 (23 days)                                            │
-│                                                                             │
-│  ═══════════════════════════════════════════════════════════════════════   │
-│                                                                             │
-│  STEP 2: BACKWARD PROPAGATION                                               │
-│  ─────────────────────────────                                              │
-│                                                                             │
-│  Shot Assembly (1 parent of milestone):                                     │
-│     downstream_impact = 8.0 / 1 = 8.0                                      │
-│     inherited_deadline = Apr 15 - 15 days = Apr 1 (8 days away)            │
-│                                                                             │
-│  Using WEIGHTED SPLIT (Rule 3):                                            │
-│     Sublayer Caching: 10 days → weight = 1/10 = 0.10                       │
-│     Asset Resolver: 15 days → weight = 1/15 = 0.067                        │
-│     Total weight = 0.167                                                    │
-│                                                                             │
-│  Sublayer Caching:                                                          │
-│     contribution = 8.0 × (0.10 / 0.167) = 8.0 × 0.6 = 4.8                  │
-│     inherited_deadline = Apr 1 - 10 days = Mar 22 (passed!)                │
-│     ⚠️ URGENCY WARNING                                                      │
-│                                                                             │
-│  Asset Resolver:                                                            │
-│     contribution = 8.0 × (0.067 / 0.167) = 8.0 × 0.4 = 3.2                 │
-│     inherited_deadline = Apr 1 - 15 days = Mar 17 (passed!)                │
-│     ⚠️ URGENCY WARNING                                                      │
-│                                                                             │
-│  ═══════════════════════════════════════════════════════════════════════   │
-│                                                                             │
-│  STEP 3: CALCULATE ETA                                                      │
-│  ─────────────────────                                                      │
-│                                                                             │
-│  Sublayer Caching:                                                          │
-│     base = 10 days, workers = 2, factor = 0.7                              │
-│     ETA = 10 / (2 ^ 0.7) = 10 / 1.62 = 6.2 days                           │
-│                                                                             │
-│  Asset Resolver:                                                            │
-│     base = 15 days, workers = 1, factor = 0.7                              │
-│     ETA = 15 / (1 ^ 0.7) = 15.0 days                                       │
-│                                                                             │
-│  ═══════════════════════════════════════════════════════════════════════   │
-│                                                                             │
-│  STEP 4: CALCULATE URGENCY                                                  │
-│  ─────────────────────────                                                  │
-│                                                                             │
-│  Sublayer Caching:                                                          │
-│     inherited deadline passed → overdue                                    │
-│     urgency = 20.0 (capped maximum)                                        │
-│                                                                             │
-│  Asset Resolver:                                                            │
-│     inherited deadline passed → overdue                                    │
-│     urgency = 20.0 (capped maximum)                                        │
-│                                                                             │
-│  ═══════════════════════════════════════════════════════════════════════   │
-│                                                                             │
-│  STEP 5: FINAL PRIORITY SCORES                                              │
-│  ─────────────────────────────                                              │
-│                                                                             │
-│  Sublayer Caching:                                                          │
-│     score = (4.8 × 20.0) / 6.2 = 96.0 / 6.2 = 15.5                        │
-│                                                                             │
-│  Asset Resolver:                                                            │
-│     score = (3.2 × 20.0) / 15.0 = 64.0 / 15.0 = 4.3                       │
-│                                                                             │
-│  ═══════════════════════════════════════════════════════════════════════   │
-│                                                                             │
-│  RESULT: RECOMMENDED PRIORITY ORDER                                         │
-│  ───────────────────────────────────                                        │
-│                                                                             │
-│  #1  Sublayer Caching    score=15.5  🔴 CRITICAL - add workers!           │
-│  #2  Asset Resolver      score=4.3   🟠 HIGH - needs attention             │
-│  #3  Shot Assembly       (locked)    🔒 Waiting on #1 and #2              │
-│                                                                             │
-│  💡 INSIGHT: Sublayer Caching scores higher because:                       │
-│     - Higher weighted contribution (shorter task = 4.8 vs 3.2)            │
-│     - Faster ETA (6.2 days vs 15.0 days)                                   │
-│     - "Shorter time to unlock more" = higher priority ✓                   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+| Role | Scope |
+|------|-------|
+| Admin | All tasks |
+| Department Head | Tasks where `contributingDepartmentId` matches their department |
+| Project Lead | Tasks in goals belonging to their project |
+| Worker | Cannot override; can flag for review |
 
-### Priority Score Interpretation
+#### Override Behavior
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    PRIORITY SCORE INTERPRETATION                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  SCORE RANGES (typical)                                                     │
-│  ──────────────────────                                                     │
-│                                                                             │
-│  Score > 10.0    🔴 CRITICAL    Do immediately, add workers                │
-│  Score 5.0-10.0  🟠 HIGH        Prioritize this week                       │
-│  Score 2.0-5.0   🟡 MEDIUM      Normal priority                            │
-│  Score 0.5-2.0   🟢 LOW         Can wait                                   │
-│  Score < 0.5     ⚪ MINIMAL     Do when available                          │
-│                                                                             │
-│  Note: Ranges depend on your milestone values and deadlines.               │
-│  Calibrate based on your organization's data.                              │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  FACTORS THAT INCREASE SCORE                                                │
-│  ────────────────────────────                                               │
-│                                                                             │
-│  ↑ Unlocks more downstream work (high impact)                              │
-│  ↑ Downstream has high strategic priority (P1 > P4)                        │
-│  ↑ Deadline approaching (urgency)                                          │
-│  ↑ Task completes quickly (low ETA)                                        │
-│  ↑ More workers assigned (faster ETA)                                      │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  FACTORS THAT DECREASE SCORE                                                │
-│  ────────────────────────────                                               │
-│                                                                             │
-│  ↓ Unlocks little (dead end task)                                          │
-│  ↓ Low strategic priority parent (P4)                                      │
-│  ↓ No deadline or far deadline                                             │
-│  ↓ Task takes long time (high ETA)                                         │
-│  ↓ Few or no workers assigned                                              │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+1. **Setting an override**: stores `PriorityOverride` on the task; displayed score = override score
+2. **During recalculation**: computed score updates normally but displayed score stays frozen
+3. **Drift indicator**: UI shows "pinned 90 (computed: 45, drift: -45)" when override diverges
+4. **Lifting an override**: clears `priorityOverride`; score snaps to current computed value
 
 ### Handling Special Cases
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                       SPECIAL CASES                                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  CASE 1: TASK WITH NO DOWNSTREAM (Leaf Node)                                │
-│  ───────────────────────────────────────────                                │
-│                                                                             │
-│  Some tasks don't unlock anything.                                         │
-│                                                                             │
-│  Solution: Assign minimum base impact = 0.5                                │
-│  These naturally sort to bottom of priority list.                          │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  CASE 2: CIRCULAR DEPENDENCIES (Error State)                                │
-│  ───────────────────────────────────────────                                │
-│                                                                             │
-│  A → B → C → A  (impossible!)                                              │
-│                                                                             │
-│  Solution: Detect during propagation, flag as error.                       │
-│  User must fix dependency graph before calculation works.                  │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  CASE 3: MULTIPLE PATHS TO SAME MILESTONE                                   │
-│  ────────────────────────────────────────                                   │
-│                                                                             │
-│      ┌───┐     ┌───┐                                                       │
-│      │ A │────▶│ C │────▶ ⭐                                               │
-│      └───┘     └───┘                                                       │
-│        │                 ▲                                                  │
-│        └────────────────▶│  (A contributes via C AND directly)             │
-│                                                                             │
-│  Solution: Count each unique path once.                                    │
-│  A's contribution = max(path_via_C, direct_path)                          │
-│  Don't double-count same milestone.                                        │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  CASE 4: TASK ON CRITICAL PATH                                              │
-│  ─────────────────────────────                                              │
-│                                                                             │
-│  Critical path = longest chain to deadline.                                │
-│  Delaying any task on it delays final delivery.                            │
-│                                                                             │
-│  Solution: Add critical_path_bonus (e.g., 1.5× multiplier)                 │
-│  Helps prioritize bottleneck tasks.                                        │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  CASE 5: LOCKED TASKS (Not Yet Available)                                   │
-│  ────────────────────────────────────────                                   │
-│                                                                             │
-│  Locked tasks can't be worked on yet.                                      │
-│                                                                             │
-│  Solution: Still calculate score for planning:                             │
-│  • Display separately from available tasks                                 │
-│  • Show "unlocks when X completes"                                         │
-│  • Use projected unlock date for urgency                                   │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  CASE 6: COMPLETED TASKS                                                    │
-│  ───────────────────────                                                    │
-│                                                                             │
-│  Completed tasks no longer need priority.                                  │
-│                                                                             │
-│  Solution:                                                                  │
-│  • Exclude from active calculation                                         │
-│  • Value already propagated to ancestors                                   │
-│  • Mark as "✓" in visualization                                           │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------------+
+|                       SPECIAL CASES                                         |
++-----------------------------------------------------------------------------+
+|                                                                             |
+|  CASE 1: TASK WITH NO DOWNSTREAM (Leaf Node)                                |
+|  GraphFactor will be low (based on goal priority and status only).         |
+|  These naturally sort toward the bottom of priority lists.                 |
+|                                                                             |
+|  CASE 2: CIRCULAR DEPENDENCIES (Error State)                                |
+|  Detect during propagation, flag as error. User must fix.                  |
+|                                                                             |
+|  CASE 3: MULTIPLE PATHS TO SAME MILESTONE                                   |
+|  Count each unique downstream task once (Set-based traversal).             |
+|                                                                             |
+|  CASE 4: TASK ON CRITICAL PATH                                              |
+|  Gets +20 bonus in GraphFactor. Combined with other factors,               |
+|  critical path tasks are strongly prioritized.                             |
+|                                                                             |
+|  CASE 5: LOCKED TASKS                                                       |
+|  Still calculate score for planning. Display separately.                   |
+|                                                                             |
+|  CASE 6: COMPLETED TASKS                                                    |
+|  Exclude from active calculation. No priority needed.                      |
+|                                                                             |
+|  CASE 7: OVERRIDDEN TASKS                                                   |
+|  Displayed score = override. Computed score still updates.                 |
+|  Drift indicator visible to authorized users.                              |
+|                                                                             |
++-----------------------------------------------------------------------------+
 ```
 
 ### Recalculation Triggers
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    WHEN TO RECALCULATE PRIORITIES                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  AUTOMATIC TRIGGERS:                                                        │
-│                                                                             │
-│  • Task completed         → Unlock children, recalc affected subgraph      │
-│  • Task status changed    → May affect urgency                             │
-│  • Worker assigned/removed → ETA changes, recalc task                       │
-│  • Daily schedule         → Urgency increases as deadlines approach        │
-│  • Dependency added/removed → Graph structure changed                       │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  MANUAL TRIGGERS:                                                           │
-│                                                                             │
-│  • "Recalculate All" button                                                │
-│  • After bulk edits                                                        │
-│  • Strategic priority changed                                              │
-│  • Deadline changed                                                         │
-│  • Milestone weight changed                                                │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  OPTIMIZATION FOR LARGE GRAPHS:                                             │
-│                                                                             │
-│  • Cache propagated values in priority_cache table                         │
-│  • Only recalculate affected subgraph on changes                          │
-│  • Background worker for daily urgency updates                             │
-│  • Debounce rapid changes (wait 5 sec before recalc)                       │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------------+
+|                    WHEN TO RECALCULATE PRIORITIES                           |
++-----------------------------------------------------------------------------+
+|                                                                             |
+|  AUTOMATIC TRIGGERS:                                                        |
+|                                                                             |
+|  * Task completed         -> Unlock children, recalc affected subgraph     |
+|  * Task status changed    -> May affect graph factor (status bonus)        |
+|  * Worker assigned/removed -> ETA changes, recalc task                      |
+|  * Daily schedule         -> Urgency increases as deadlines approach       |
+|  * Dependency added/removed -> Graph structure changed                      |
+|  * Calibration weights changed -> Full recalc of all scores                |
+|                                                                             |
+|  NOTE: Overridden tasks recalculate their computedScore but NOT            |
+|  their displayed effectiveScore. Drift indicator updates instead.          |
+|                                                                             |
+|  MANUAL TRIGGERS:                                                           |
+|                                                                             |
+|  * "Recalculate All" button                                                |
+|  * Strategic priority changed (P1, P2, P3)                                 |
+|  * Deadline changed                                                         |
+|  * Override set or lifted                                                   |
+|                                                                             |
++-----------------------------------------------------------------------------+
 ```
 
 ### UI Integration
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    PRIORITY IN UI VIEWS                                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  TECH TREE VIEW (A):                                                        │
-│  ───────────────────                                                        │
-│                                                                             │
-│  • Node border color indicates priority score                              │
-│  • Hover shows: "Priority: 15.5 (Critical)"                                │
-│  • Critical path highlighted with thick line                               │
-│  • Tooltip explains: "Unlocks 3 tasks + 1 milestone"                       │
-│                                                                             │
-│       ┌─────────────┐                                                       │
-│       │ 🔴 Sublayer │  ← Red border = critical priority                    │
-│       │   15.5      │                                                       │
-│       │   👥2 6.2d  │                                                       │
-│       └─────────────┘                                                       │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  DASHBOARD VIEW (B):                                                        │
-│  ───────────────────                                                        │
-│                                                                             │
-│  • Sort goals by highest-priority task within them                         │
-│  • Show "Top priority: Task X (score: 15.5)"                               │
-│  • Warning badges: "⚠️ 3 tasks past inherited deadline"                    │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  TIMELINE VIEW (C):                                                         │
-│  ─────────────────                                                          │
-│                                                                             │
-│  • Order rows by priority score (highest at top)                           │
-│  • Color-code bars by priority level                                       │
-│  • Show critical path as connected highlighted blocks                      │
-│                                                                             │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                             │
-│  WORKER PERSONAL VIEW:                                                      │
-│  ─────────────────────                                                      │
-│                                                                             │
-│  • Personal queue auto-sorted by calculated priority                       │
-│  • Manual reorder allowed, but shows warning if out of order              │
-│  • "Suggested: Task X (highest score in your queue)"                       │
-│                                                                             │
-│  ┌─── MY QUEUE (auto-sorted by priority) ────────────────────────────┐    │
-│  │                                                                    │    │
-│  │  #  Task                     Score   Status                       │    │
-│  │  ── ───────────────────────  ──────  ────────────────────         │    │
-│  │  1  Sublayer Caching         15.5    ● ACTIVE ✓                   │    │
-│  │  2  Asset Resolver           4.3     ○ Available                  │    │
-│  │  3  Deadline Templates       1.8     ○ Available                  │    │
-│  │  4  Docs Update              0.4     ○ Available                  │    │
-│  │                                                                    │    │
-│  │  ✓ Your active task matches recommended priority                  │    │
-│  │                                                                    │    │
-│  └────────────────────────────────────────────────────────────────────┘    │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------------+
+|                    PRIORITY IN UI VIEWS                                     |
++-----------------------------------------------------------------------------+
+|                                                                             |
+|  TECH TREE VIEW (A):                                                        |
+|  * Priority badge on each node (Critical/High/Medium/Low/Minimal)          |
+|  * Color-coded by score: red > amber > blue > gray                         |
+|  * Hover shows factor breakdown: "Proj: 30 + Dept: 25 + Cr: 10 + GF: 21" |
+|  * Pin indicator on overridden tasks                                       |
+|                                                                             |
+|  TASK DETAIL PANEL:                                                         |
+|  * Four-factor breakdown with progress bars                                |
+|  * Override button (for authorized users)                                  |
+|  * Drift indicator when override active                                    |
+|  * Critical path indicator                                                 |
+|                                                                             |
+|  WORKER VIEW (D):                                                           |
+|  * Queue sorted by effective score (override-aware)                        |
+|  * Priority badge on each task in queue                                    |
+|  * Pin next to overridden scores                                           |
+|                                                                             |
+|  DASHBOARD VIEW (B):                                                        |
+|  * Sort goals by highest-priority task within them                         |
+|  * Show "Top priority: Task X (score: 86)"                                 |
+|                                                                             |
+|  TIMELINE VIEW (C):                                                         |
+|  * Color-code bars by priority level                                       |
+|  * Show critical path as connected highlighted blocks                      |
+|                                                                             |
++-----------------------------------------------------------------------------+
 ```
+
+### Acceptance Criteria
+
+- All 18 permutation rows executable via unit test that outputs ranked list
+- Second table (GF=90) produces different ranking from first (GF=60) in at least 3 positions
+- Override sets `priorityOverride`; recalculation does NOT change displayed score
+- Lift override clears `priorityOverride`; moves record to audit history
+- `deriveWeightsFromCalibration()` produces valid weights (sum=1, each >= 0.05) for any consistent set of admin answers
+- `deriveWeightsFromCalibration()` reports conflicts when admin answers are contradictory
+- Default weights (0.30 / 0.25 / 0.10 / 0.35) used when no calibration has been performed
 
 ## Dependency Model
 
