@@ -45,7 +45,8 @@
       "Bash(curl -s -X POST \"http://localhost:3001/api/users/Bob%20Smith/role\" -H 'Content-Type: application/json' -d '{\"\"role\"\":\"\"worker\"\",\"\"adminUser\"\":\"\"yo\"\"}')",
       "Bash(curl -s -X POST \"http://localhost:3001/api/users/yo/role\" -H 'Content-Type: application/json' -d '{\"\"role\"\":\"\"worker\"\",\"\"adminUser\"\":\"\"yo\"\"}')",
       "Bash(taskkill //F //FI \"WINDOWTITLE eq *tsx*\")",
-      "Bash(npx kill-port:*)"
+      "Bash(npx kill-port:*)",
+      "Bash(timeout 8 bash -c 'until curl -s http://localhost:5173 > /dev/null 2>&1; do sleep 1; done; echo \"\"ready\"\"')"
     ]
   }
 }

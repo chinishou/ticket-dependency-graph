@@ -93,11 +93,44 @@ Three roles: **Admin**, **Coordinator**, **Worker** (`src/types/index.ts: UserRo
 - **Express 5 + better-sqlite3** on port 3001
 - **Single `entities` table** with JSON blobs: `(table_name, id, data, updated_at)` — no ORM, no migrations.
 - **`users` table** — `(name, role, created_at)`. Roles: `worker` or `coordinator` only (admin never stored).
-- **Bidirectional sync** in `server/mutations.ts` — updating one side of a dependency automatically updates the other side, wrapped in SQLite transactions.
+- **Bidirectional sync** in `server/mutations.ts` — updating one side of a dependency automatically updates the other side, wrapped in SQLite transactions. Supports `updateTask`, `updateMilestone`, `updateGoal`, `updateDepartment`, `updateProject`, `updateWorker`, `addGoal`, `addMilestone`, `addTaskToGoal`, `removeTaskFromGoal`.
 - **Presence system** — `presence` table with `(scope, user_name)` composite PK, 3-minute heartbeat timeout. Cleanup on sign-out captures `userName` in closure (store may already be null at cleanup time).
 - **Edit locks** — pessimistic at goal/tree scope, 5-minute auto-expiry.
 - **Polling** — clients call `GET /api/poll?since=<ts>` every 5s for changes.
 - Vite proxies `/api` to the Express server in dev mode (configured in `vite.config.ts`).
+
+### Notification System
+
+Event-driven notification system with per-user persistence and toast alerts.
+
+**Architecture:**
+- **`useNotificationStore`** (`src/store/useNotificationStore.ts`) — separate Zustand store managing notifications and toasts. Initialized via `initNotifications()` on login/reconnect.
+- **`Notification` type** (`src/types/index.ts`) — `id`, `type`, `title`, `message`, `priority`, `timestamp`, `read`, optional `entityType`, `userName`, `targetUserIds`.
+- **Per-user localStorage** — notifications keyed by `tech-tree-notifications-{workerId}`. Targeted notifications written to each target user's storage so they see them on next login. Max 100 per user.
+- **Toast system** — `addToast()` creates ephemeral 5-second popups via `NotificationToast` component (bottom-right corner).
+- **`NotificationCenter`** — bell icon in header bar with unread count badge. Dropdown panel with mark-as-read, mark-all-read, and clear-all actions.
+- **`FloatingTaskDetailPanel`** — slide-in panel showing task details when a task is selected from Workers, Timeline, or My Tasks views. Includes "Go to Tech Tree" navigation button.
+
+**Notification types** (`NotificationType`):
+| Type | Trigger | Priority |
+|------|---------|----------|
+| `task_assigned` | Worker assigned to task | medium |
+| `task_status_changed` | Task status transitions | medium |
+| `task_completed` | Task marked completed | low |
+| `dependency_completed` | Upstream task completed, unlocking downstream | medium |
+| `milestone_unlocked` | Milestone unlocked | high |
+| `lock_acquired` / `lock_released` | Edit lock acquired/released | medium/low |
+| `priority_overridden` / `priority_override_lifted` | Manual priority override set/removed | high/medium |
+| `calibration_changed` | Priority calibration weights updated | high |
+
+**Integration points in `useStore`:**
+- `updateTask()` — emits `task_status_changed`, `task_completed`, `dependency_completed` (for downstream locked tasks), and `task_assigned` (for newly added workers).
+- `updateMilestone()` — emits `milestone_unlocked` when milestone transitions to unlocked.
+- `acquireLock()` / `releaseLock()` — emits `lock_acquired` / `lock_released`.
+- `setPriorityOverride()` / `liftPriorityOverride()` — emits `priority_overridden` / `priority_override_lifted`.
+- `setCalibrationWeights()` — emits `calibration_changed`.
+
+**Targeting:** Notifications include optional `targetUserIds` (worker IDs). `isNotificationRelevant()` filters the notification list to show only broadcast (no targets) or targeted-to-current-user notifications.
 
 ### Key Patterns
 
@@ -105,10 +138,12 @@ Three roles: **Admin**, **Coordinator**, **Worker** (`src/types/index.ts: UserRo
 - **Optimistic mutations** — local Zustand state updates first, then async `serverMutation()` call enriched with `userName`, `role`, `userWorkerId`. Server response reconciles state.
 - **CSS variables** for theming — dark theme colors defined in `src/index.css` as `--color-*` vars. No Tailwind utility classes in components; inline styles with CSS vars throughout.
 - **Mock data fallback** — store initializes from `src/data/mockData.ts` if server is unavailable.
+- **Cross-view task selection** — `selectedTaskId` in Zustand store enables selecting a task from Workers, Timeline, or My Tasks views and viewing details in `FloatingTaskDetailPanel`. "Go to Tech Tree" button navigates to the task's goal tech tree with the task highlighted.
+- **Auto worker-ID linking** — `setUserName()` and `fetchState()` automatically match the logged-in user's name to a `Worker` entity and set `userWorkerId` in store + localStorage.
 
 ## Entity Types
 
-Defined in `src/types/index.ts`: Company, Department, Project, Goal, Task, Milestone, Worker.
+Defined in `src/types/index.ts`: Company, Department, Project, Goal, Task, Milestone, Worker, Notification.
 
 Key enums: `TaskStatus` (locked/available/in_progress/paused/completed/blocked), `StrategicPriority` (P1/P2/P3), `WorkerAvailability` (full/partial/unavailable).
 
