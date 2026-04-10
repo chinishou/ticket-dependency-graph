@@ -15,6 +15,7 @@ export function FloatingTaskDetailPanel({ onGoToTechTree, onClose }: FloatingTas
   const workersMap = useStore((s) => s.workers);
   const departmentsMap = useStore((s) => s.departments);
   const goalsMap = useStore((s) => s.goals);
+  const getProjectForGoal = useStore((s) => s.getProjectForGoal);
 
   const priorities = useMemo(
     () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap }),
@@ -28,6 +29,7 @@ export function FloatingTaskDetailPanel({ onGoToTechTree, onClose }: FloatingTas
   const statusColor = getStatusColor(task.status);
   const assignedWorkers = task.assignedWorkerIds.map((id) => workersMap.get(id)).filter(Boolean);
   const dept = departmentsMap.get(task.contributingDepartmentId);
+  const project = getProjectForGoal(task.goalId);
   const workerCount = assignedWorkers.length;
   const etaDays = getEtaDays(task, workerCount);
   const pri = priorities.get(task.id);
@@ -55,6 +57,12 @@ export function FloatingTaskDetailPanel({ onGoToTechTree, onClose }: FloatingTas
         </div>
       )}
 
+      {project && (
+        <div style={metaRowStyle}>
+          <span style={{ color: 'var(--color-text-muted)' }}>Project</span>
+          <span>{project.name}</span>
+        </div>
+      )}
       {dept && (
         <div style={metaRowStyle}>
           <span style={{ color: 'var(--color-text-muted)' }}>Department</span>

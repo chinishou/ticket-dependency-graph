@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import { GoalSelector } from './components/layout/GoalSelector';
+import { ParentSelector } from './components/layout/ParentSelector';
 import { ViewSwitcher, getDefaultView } from './components/layout/ViewSwitcher';
 import type { TopView } from './components/layout/ViewSwitcher';
 import { LoginPage } from './components/layout/LoginPage';
@@ -21,6 +22,11 @@ import { NotificationToast } from './components/shared/NotificationToast';
 
 type SubViewA = 'goal-map' | 'tech-tree';
 type SubViewB = 'company' | 'project' | 'department';
+
+type EntrySource =
+  | { from: 'goal-map' }
+  | { from: 'project-dashboard'; projectId: string }
+  | { from: 'dept-dashboard'; deptId: string };
 
 function App() {
   const fetchState = useStore((s) => s.fetchState);
@@ -60,6 +66,7 @@ function App() {
   const [selectedGoalId, setSelectedGoalId] = useState('goal-usd-pipeline');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedDeptId, setSelectedDeptId] = useState('');
+  const [entrySource, setEntrySource] = useState<EntrySource>({ from: 'goal-map' });
 
   // Reset to default view whenever role changes (including re-login as different role)
   const [lastRole, setLastRole] = useState(userRole);
@@ -78,11 +85,21 @@ function App() {
       : projectsMap.get(goal.parentId)
     : null;
 
-  // Fallback parent for goal-map when no goal is selected yet (e.g. after removing mock data)
-  const goalMapParentType: 'department' | 'project' = goal?.parentType ?? 'department';
-  const goalMapParentId: string =
-    goal?.parentId ??
-    (departmentsMap.size > 0 ? Array.from(departmentsMap.keys())[0] : Array.from(projectsMap.keys())[0] ?? '');
+  // User-controlled goal map parent (which dept/project to display in GoalMapView)
+  const [goalMapParentType, setGoalMapParentType] = useState<'department' | 'project'>('department');
+  const [goalMapParentId, setGoalMapParentId] = useState<string>('');
+
+  // Initialize goalMapParentId once departments load
+  useEffect(() => {
+    if (!goalMapParentId && departmentsMap.size > 0) {
+      setGoalMapParentId(Array.from(departmentsMap.keys())[0]);
+    }
+  }, [departmentsMap, goalMapParentId]);
+
+  const handleParentChange = useCallback((type: 'department' | 'project', id: string) => {
+    setGoalMapParentType(type);
+    setGoalMapParentId(id);
+  }, []);
 
   const clearSelection = useCallback(() => {
     setSelectedTask(null);
@@ -101,11 +118,18 @@ function App() {
     clearSelection();
     setSelectedGoalId(goalId);
     setSubViewA('tech-tree');
-  }, [clearSelection]);
+    // Keep goalMap parent in sync with the selected goal's parent
+    const selectedGoal = goalsMap.get(goalId);
+    if (selectedGoal) {
+      setGoalMapParentType(selectedGoal.parentType);
+      setGoalMapParentId(selectedGoal.parentId);
+    }
+  }, [clearSelection, goalsMap]);
 
   const handleGoToGoalMap = useCallback(() => {
     clearSelection();
     setSubViewA('goal-map');
+    setEntrySource({ from: 'goal-map' });
   }, [clearSelection]);
 
   const handleGoToTechTree = useCallback((goalId: string, taskId: string) => {
@@ -140,12 +164,31 @@ function App() {
     setSelectedGoalId(goalId);
     setSubViewA('tech-tree');
     setTopView('A');
-  }, [clearSelection]);
+    // Record where we came from so breadcrumb can navigate back
+    if (subViewB === 'project') setEntrySource({ from: 'project-dashboard', projectId: selectedProjectId });
+    else if (subViewB === 'department') setEntrySource({ from: 'dept-dashboard', deptId: selectedDeptId });
+    else setEntrySource({ from: 'goal-map' });
+  }, [clearSelection, subViewB, selectedProjectId, selectedDeptId]);
 
   // --- View switching ---
   const handleViewSwitch = useCallback((view: TopView) => {
     setTopView(view);
   }, []);
+
+  // --- Breadcrumb back handler (context-aware) ---
+  const handleBreadcrumbBack = useCallback(() => {
+    if (entrySource.from === 'project-dashboard') {
+      setSelectedProjectId(entrySource.projectId);
+      setSubViewB('project');
+      setTopView('B');
+    } else if (entrySource.from === 'dept-dashboard') {
+      setSelectedDeptId(entrySource.deptId);
+      setSubViewB('department');
+      setTopView('B');
+    } else {
+      handleGoToGoalMap();
+    }
+  }, [entrySource, handleGoToGoalMap]);
 
   // --- Breadcrumbs ---
   const buildBreadcrumbs = () => {
@@ -161,9 +204,15 @@ function App() {
           { label: 'Goals' },
         ];
       }
+      // tech-tree: breadcrumb parent uses entrySource to navigate back correctly
+      const backLabel = entrySource.from === 'project-dashboard'
+        ? (projectsMap.get(entrySource.projectId)?.name ?? 'Project')
+        : entrySource.from === 'dept-dashboard'
+          ? (departmentsMap.get(entrySource.deptId)?.name ?? 'Department')
+          : (parent?.name ?? company.name);
       return [
-        { label: company.name, href: '#', onClick: handleGoToGoalMap },
-        ...(parent ? [{ label: parent.name, href: '#', onClick: handleGoToGoalMap }] : []),
+        { label: company.name, href: '#', onClick: handleBreadcrumbBack },
+        { label: backLabel, href: '#', onClick: handleBreadcrumbBack },
         ...(goal ? [{ label: goal.name }] : []),
       ];
     }
@@ -252,12 +301,21 @@ function App() {
 
       {/* View A: Tech Tree */}
       {topView === 'A' && subViewA === 'goal-map' && (
-        <div key="goal-map" className="view-enter" style={{ width: '100%', height: '100%' }}>
-          <GoalMapView
-            parentType={goalMapParentType}
-            parentId={goalMapParentId}
-            onSelectGoal={handleGoalMapSelect}
-          />
+        <div key="goal-map" className="view-enter" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ borderBottom: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-secondary)', flexShrink: 0 }}>
+            <ParentSelector
+              parentType={goalMapParentType}
+              parentId={goalMapParentId}
+              onChange={handleParentChange}
+            />
+          </div>
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <GoalMapView
+              parentType={goalMapParentType}
+              parentId={goalMapParentId}
+              onSelectGoal={handleGoalMapSelect}
+            />
+          </div>
         </div>
       )}
       {topView === 'A' && subViewA === 'tech-tree' && (

@@ -103,6 +103,7 @@ interface AppState {
   getGoalsForProject: (projectId: string) => Goal[];
   getAllTasks: () => Task[];
   getUnplacedTasks: (goalId: string) => Task[];
+  getProjectForGoal: (goalId: string) => Project | null;
   getRelatedNodeIds: (nodeId: string) => Set<string>;
 }
 
@@ -979,6 +980,17 @@ export const useStore = create<AppState>((set, get) => ({
     return Array.from(get().tasks.values()).filter(
       (t) => !t.archived && !placedIds.has(t.id) && (!t.goalId || t.goalId === '' || t.goalId === goalId),
     );
+  },
+
+  getProjectForGoal: (goalId: string) => {
+    const goal = get().goals.get(goalId);
+    if (!goal) return null;
+    if (goal.parentType === 'project') return get().projects.get(goal.parentId) ?? null;
+    // Also check if any project explicitly lists this goal (goal parented to dept but in a project's goalIds)
+    for (const project of get().projects.values()) {
+      if (project.goalIds.includes(goalId)) return project;
+    }
+    return null;
   },
 
   getRelatedNodeIds: (nodeId: string) => {

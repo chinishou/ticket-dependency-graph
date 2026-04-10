@@ -351,10 +351,10 @@ function ResyncByIdRow({ adminPassword }: { adminPassword: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// FullBootstrapCard
+// FullBootstrapCard (reserved for future use)
 // ---------------------------------------------------------------------------
 
-function FullBootstrapCard({ adminPassword, onSync }: { adminPassword: string; onSync: (e: string) => Promise<{ success: boolean; output?: string; error?: string }> }) {
+export function FullBootstrapCard({ adminPassword: _adminPassword, onSync }: { adminPassword: string; onSync: (e: string) => Promise<{ success: boolean; output?: string; error?: string }> }) {
   const [phase, setPhase] = useState<'idle' | 'confirming' | 'running' | 'done' | 'error'>('idle');
   const [output, setOutput] = useState('');
   const [error, setError] = useState('');

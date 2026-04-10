@@ -140,6 +140,7 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
   const liftPriorityOverride = useStore((s) => s.liftPriorityOverride);
   const getTasksForGoal = useStore((s) => s.getTasksForGoal);
   const getMilestonesForGoal = useStore((s) => s.getMilestonesForGoal);
+  const getProjectForGoal = useStore((s) => s.getProjectForGoal);
 
   const goalsMap = useStore((s) => s.goals);
 
@@ -250,6 +251,7 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
   const statusColor = getStatusColor(task.status);
   const assignedWorkers = task.assignedWorkerIds.map((id) => workersMap.get(id)).filter(Boolean);
   const dept = departmentsMap.get(task.contributingDepartmentId);
+  const project = getProjectForGoal(task.goalId);
   const workerCount = assignedWorkers.length;
   const etaDays = getEtaDays(task, workerCount);
   const isFocused = focusedNodeId === selectedTaskId;
@@ -314,6 +316,12 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
       <CollapsibleDescription text={task.description} />
 
       {/* Meta */}
+      {project && (
+        <div style={metaRowStyle}>
+          <span style={{ color: 'var(--color-text-muted)' }}>Project</span>
+          <span>{project.name}</span>
+        </div>
+      )}
       {dept && (
         <div style={metaRowStyle}>
           <span style={{ color: 'var(--color-text-muted)' }}>Department</span>

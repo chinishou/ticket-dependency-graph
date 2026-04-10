@@ -18,22 +18,6 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
 
   const isSmall = size === 'sm';
 
-  const badgeStyle: React.CSSProperties = {
-    display: 'inline-block',
-    fontSize: isSmall ? 10 : 11,
-    fontWeight: 600,
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    padding: isSmall ? '2px 6px' : '3px 8px',
-    borderRadius: 999,
-    color: color,
-    backgroundColor: color,
-    backgroundClip: 'padding-box',
-    lineHeight: 1.4,
-    whiteSpace: 'nowrap',
-    ...style,
-  };
-
   // We need to set background with opacity. Since the color value is a CSS
   // variable reference (e.g. "var(--color-done)"), we cannot manipulate it
   // directly in JS. Instead we use a wrapper with a pseudo-element approach

@@ -24,7 +24,7 @@ No test framework is configured. TypeScript type-checking (`tsc -b`) is the prim
 
 ## Architecture
 
-**VFX production task visualization app** — game-inspired tech tree UI for managing tasks, goals, milestones, and workers across departments and projects.
+**Pipeline team ticket system and tech tree** — add-on to ShotGrid (SG) that adds cross-project associations, goal-based organization, and task dependency graphs that SG's single-project-per-ticket model cannot represent. All workers are assumed to be pipeline team. See `plan.md` for the active improvement roadmap.
 
 ### Data Model Hierarchy
 
@@ -93,7 +93,8 @@ Three roles: **Admin**, **Coordinator**, **Worker** (`src/types/index.ts: UserRo
 - **Express 5 + better-sqlite3** on port 3001
 - **Single `entities` table** with JSON blobs: `(table_name, id, data, updated_at)` — no ORM, no migrations.
 - **`users` table** — `(name, role, created_at)`. Roles: `worker` or `coordinator` only (admin never stored).
-- **Bidirectional sync** in `server/mutations.ts` — updating one side of a dependency automatically updates the other side, wrapped in SQLite transactions. Supports `updateTask`, `updateMilestone`, `updateGoal`, `updateDepartment`, `updateProject`, `updateWorker`, `addGoal`, `addMilestone`, `addTaskToGoal`, `removeTaskFromGoal`.
+- **Bidirectional sync** in `server/mutations.ts` — updating one side of a dependency automatically updates the other side, wrapped in SQLite transactions. Supports `updateTask`, `updateMilestone`, `updateGoal`, `updateDepartment`, `updateProject`, `updateWorker`, `addGoal`, `addMilestone`, `addTaskToGoal`, `removeTaskFromGoal`, `removeGoal`, `removeMilestoneFromGoal`.
+- **DB query ordering** — both `getAllEntities` and `getChangedEntitiesSince` in `server/db.ts` use `ORDER BY table_name, id`. This is load-bearing: `INSERT OR REPLACE` in SQLite reorders rows, so without `ORDER BY` the `Map.keys()` order is non-deterministic, which breaks fallback logic in `App.tsx` that uses `Array.from(departmentsMap.keys())[0]`.
 - **Presence system** — `presence` table with `(scope, user_name)` composite PK, 3-minute heartbeat timeout. Cleanup on sign-out captures `userName` in closure (store may already be null at cleanup time).
 - **Edit locks** — pessimistic at goal/tree scope, 5-minute auto-expiry.
 - **Polling** — clients call `GET /api/poll?since=<ts>` every 5s for changes.
@@ -166,6 +167,8 @@ Key fields:
 - `archived: true` is a soft-delete; entity stays in DB and renders in the Tech Tree (muted, 40% opacity + 📁 badge) but is excluded from all other views, priority calculations, workload counts, and notification triggers.
 - `getTasksForGoal` intentionally includes archived tasks so the Tech Tree can render them with their dependency edges intact.
 - All other store getters and view components must filter `!t.archived`.
+
+**GoalMapView double-click:** React Flow's `elementsSelectable={false}` silently suppresses `onNodeDoubleClick`. Double-click detection is implemented via a timestamp ref in `onNodeClick` (300ms window) — do not add `onNodeDoubleClick` back.
 
 ## ShotGrid Sync System
 

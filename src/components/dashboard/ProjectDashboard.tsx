@@ -14,7 +14,7 @@ interface ProjectDashboardProps {
 
 export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   projectId,
-  onSelectGoal,
+  onSelectGoal: _onSelectGoal,
   onBack,
 }) => {
   const project = useStore((s) => s.projects.get(projectId));
@@ -24,7 +24,6 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   const goals = useStore((s) => s.goals);
   const tasks = useStore((s) => s.tasks);
   const milestones = useStore((s) => s.milestones);
-  const workers = useStore((s) => s.workers);
   const getGoalsForProject = useStore((s) => s.getGoalsForProject);
   const getTasksForGoal = useStore((s) => s.getTasksForGoal);
 

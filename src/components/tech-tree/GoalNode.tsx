@@ -2,23 +2,39 @@ import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import type { NodeProps } from '@xyflow/react';
 import type { Goal } from '../../types';
+import {
+  computeGoalStatus,
+  getGoalStatusColor,
+  getGoalStatusGlow,
+} from '../../types';
 
 export interface GoalNodeData {
   type: 'goal';
   goal: Goal;
   completedTasks: number;
   totalTasks: number;
+  tasksMap: Map<string, { status: string; archived?: boolean }>;
   dimmed?: boolean;
   [key: string]: unknown;
 }
 
-const ACCENT = '#a78bfa';
-const ACCENT_GLOW = 'rgba(167, 139, 250, 0.35)';
+const STATUS_LABELS: Record<string, string> = {
+  completed:   'Done',
+  in_progress: 'In Progress',
+  blocked:     'Blocked',
+  available:   'Active',
+  empty:       'No Tasks',
+};
 
 function GoalNodeComponent({ data, selected }: NodeProps & { data: GoalNodeData }) {
-  const { goal, completedTasks, totalTasks, dimmed } = data;
+  const { goal, completedTasks, totalTasks, tasksMap, dimmed } = data;
   const pct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
   const opacity = dimmed ? 0.15 : 1;
+
+  const status = computeGoalStatus(goal, tasksMap);
+  const accent = getGoalStatusColor(status);
+  const glow = getGoalStatusGlow(status);
+  const accentGlowAlpha = glow === 'transparent' ? 'rgba(100,116,139,0.2)' : glow;
 
   return (
     <>
@@ -32,25 +48,25 @@ function GoalNodeComponent({ data, selected }: NodeProps & { data: GoalNodeData 
           width: 220,
           padding: '10px 12px',
           borderRadius: 10,
-          border: `2px solid ${ACCENT}`,
+          border: `2px solid ${accent}`,
           backgroundColor: 'var(--color-bg-secondary)',
           boxShadow: selected
-            ? `0 0 20px ${ACCENT_GLOW}, 0 0 40px ${ACCENT_GLOW}`
-            : `0 0 8px ${ACCENT_GLOW}`,
+            ? `0 0 20px ${accentGlowAlpha}, 0 0 40px ${accentGlowAlpha}`
+            : `0 0 8px ${accentGlowAlpha}`,
           opacity,
           cursor: 'pointer',
           transition: 'box-shadow 0.2s, opacity 0.3s',
           pointerEvents: dimmed ? 'none' : 'auto',
         }}
       >
-        {/* Priority badge */}
+        {/* Priority badge + task count + status pill */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
           <span
             style={{
               fontSize: 9,
               fontWeight: 700,
               color: '#fff',
-              backgroundColor: ACCENT,
+              backgroundColor: accent,
               padding: '1px 6px',
               borderRadius: 4,
               textTransform: 'uppercase',
@@ -66,7 +82,7 @@ function GoalNodeComponent({ data, selected }: NodeProps & { data: GoalNodeData 
               marginLeft: 'auto',
             }}
           >
-            {completedTasks}/{totalTasks} tasks
+            {completedTasks}/{totalTasks} tasks{totalTasks > 0 ? ` · ${pct}%` : ''}
           </span>
         </div>
 
@@ -76,7 +92,7 @@ function GoalNodeComponent({ data, selected }: NodeProps & { data: GoalNodeData 
             fontSize: 13,
             fontWeight: 600,
             color: 'var(--color-text-primary)',
-            marginBottom: 4,
+            marginBottom: 2,
             lineHeight: 1.3,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -86,33 +102,41 @@ function GoalNodeComponent({ data, selected }: NodeProps & { data: GoalNodeData 
           {goal.name}
         </div>
 
-        {/* Owner */}
-        <div
-          style={{
-            fontSize: 10,
-            color: 'var(--color-text-secondary)',
-            marginBottom: 6,
-          }}
-        >
-          {goal.owner}
+        {/* Status badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+          <span style={{
+            display: 'inline-block',
+            width: 6, height: 6,
+            borderRadius: '50%',
+            backgroundColor: accent,
+            flexShrink: 0,
+          }} />
+          <span style={{ fontSize: 10, color: accent, fontWeight: 600 }}>
+            {STATUS_LABELS[status] ?? status}
+          </span>
+          {goal.owner && (
+            <span style={{ fontSize: 10, color: 'var(--color-text-muted)', marginLeft: 'auto' }}>
+              {goal.owner}
+            </span>
+          )}
         </div>
 
         {/* Progress bar */}
         <div
           style={{
             width: '100%',
-            height: 3,
+            height: 6,
             backgroundColor: 'var(--color-bg-tertiary)',
-            borderRadius: 2,
+            borderRadius: 3,
           }}
         >
           <div
             style={{
               width: `${pct}%`,
               height: '100%',
-              backgroundColor: pct === 100 ? 'var(--color-done)' : ACCENT,
-              borderRadius: 2,
-              boxShadow: pct > 0 ? `0 0 4px ${pct === 100 ? 'var(--color-done-glow)' : ACCENT_GLOW}` : undefined,
+              backgroundColor: accent,
+              borderRadius: 3,
+              boxShadow: pct > 0 ? `0 0 4px ${accentGlowAlpha}` : undefined,
               transition: 'width 0.3s',
             }}
           />

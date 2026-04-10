@@ -28,6 +28,42 @@ export type TaskStatus =
   | 'completed'
   | 'blocked';
 
+export type GoalStatus = 'completed' | 'in_progress' | 'blocked' | 'available' | 'empty';
+
+export function computeGoalStatus(
+  goal: { taskIds: string[] },
+  tasksMap: Map<string, { status: string; archived?: boolean }>,
+): GoalStatus {
+  const tasks = goal.taskIds
+    .map((id) => tasksMap.get(id))
+    .filter((t): t is { status: string; archived?: boolean } => !!t && !t.archived);
+  if (tasks.length === 0) return 'empty';
+  if (tasks.every((t) => t.status === 'completed')) return 'completed';
+  if (tasks.some((t) => t.status === 'in_progress')) return 'in_progress';
+  if (tasks.some((t) => t.status === 'blocked')) return 'blocked';
+  return 'available';
+}
+
+export function getGoalStatusColor(status: GoalStatus): string {
+  switch (status) {
+    case 'completed':   return 'var(--color-done)';
+    case 'in_progress': return 'var(--color-in-progress)';
+    case 'blocked':     return 'var(--color-blocked)';
+    case 'available':   return 'var(--color-available)';
+    case 'empty':       return 'var(--color-border)';
+  }
+}
+
+export function getGoalStatusGlow(status: GoalStatus): string {
+  switch (status) {
+    case 'completed':   return 'var(--color-done-glow)';
+    case 'in_progress': return 'var(--color-in-progress-glow)';
+    case 'blocked':     return 'var(--color-locked-glow)';
+    case 'available':   return 'var(--color-available-glow)';
+    case 'empty':       return 'transparent';
+  }
+}
+
 export type MilestoneType = 'capability' | 'efficiency' | 'quality' | 'cost_reduction';
 
 export type ProjectStatus = 'active' | 'completed' | 'on_hold' | 'cancelled';

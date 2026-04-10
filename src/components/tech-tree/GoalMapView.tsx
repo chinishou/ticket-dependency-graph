@@ -33,7 +33,7 @@ interface GoalMapViewProps {
 
 function buildGoalGraphLayout(
   goals: Goal[],
-  tasksMap: Map<string, { status: string }>,
+  tasksMap: Map<string, { status: string; archived?: boolean }>,
 ): { nodes: Node<GoalNodeData>[]; edges: Edge[] } {
   const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
   g.setGraph({ rankdir: 'TB', ranksep: 80, nodesep: 40, marginx: 40, marginy: 40 });
@@ -64,7 +64,7 @@ function buildGoalGraphLayout(
       type: 'goalNode' as const,
       position: { x: pos.x - GOAL_NODE_WIDTH / 2, y: pos.y - GOAL_NODE_HEIGHT / 2 },
       measured: { width: GOAL_NODE_WIDTH, height: GOAL_NODE_HEIGHT },
-      data: { type: 'goal' as const, goal, completedTasks, totalTasks },
+      data: { type: 'goal' as const, goal, completedTasks, totalTasks, tasksMap },
     };
   });
 
@@ -152,7 +152,7 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
   }, [parentType, parentId, getGoalsForDepartment, getGoalsForProject, goalsMap]);
 
   const { nodes: layoutNodes, edges: layoutEdges } = useMemo(() => {
-    return buildGoalGraphLayout(parentGoals, tasksMap as Map<string, { status: string }>);
+    return buildGoalGraphLayout(parentGoals, tasksMap as Map<string, { status: string; archived?: boolean }>);
   }, [parentGoals, tasksMap]);
 
   const [editNodes, setEditNodes] = useState<Node<GoalNodeData>[]>([]);
@@ -192,7 +192,7 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     const filtered = changes.filter((c) => c.type !== 'dimensions');
     if (filtered.length > 0) {
-      setEditNodes((nds) => applyNodeChanges(filtered, nds));
+      setEditNodes((nds) => applyNodeChanges(filtered, nds) as Node<GoalNodeData>[]);
     }
   }, []);
 

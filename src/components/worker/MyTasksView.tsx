@@ -18,6 +18,7 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
   const departmentsMap = useStore((s) => s.departments);
   const milestonesMap = useStore((s) => s.milestones);
   const updateTask = useStore((s) => s.updateTask);
+  const getProjectForGoal = useStore((s) => s.getProjectForGoal);
 
   const priorities = useMemo(
     () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap }),
@@ -107,6 +108,7 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {activeTasks.map((task) => {
                 const goal = goalsMap.get(task.goalId);
+                const project = getProjectForGoal(task.goalId);
                 const pri = priorities.get(task.id);
                 const eta = getEtaDays(task, task.assignedWorkerIds.length);
                 return (
@@ -125,6 +127,11 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
                           {goal?.name || 'Unassigned'}
                           {task.ticketId && <span> &middot; {task.ticketId}</span>}
                         </div>
+                        {project && (
+                          <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 1, opacity: 0.75 }}>
+                            {project.name}
+                          </div>
+                        )}
                       </div>
                       {pri && (
                         <span style={{
@@ -181,6 +188,7 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
             <div style={{ borderRadius: 8, border: '1px solid var(--color-border)', overflow: 'hidden' }}>
               {upNextTasks.map((task, i) => {
                 const goal = goalsMap.get(task.goalId);
+                const project = getProjectForGoal(task.goalId);
                 const pri = priorities.get(task.id);
                 const canStart = task.status === 'available' || task.status === 'paused';
                 return (
@@ -216,6 +224,11 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
                       <div style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
                         {goal?.name || 'Unassigned'} &middot; {getStatusLabel(task.status)} &middot; {task.baseDurationDays}d
                       </div>
+                      {project && (
+                        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 1, opacity: 0.75 }}>
+                          {project.name}
+                        </div>
+                      )}
                     </div>
                     {pri && (
                       <span style={{

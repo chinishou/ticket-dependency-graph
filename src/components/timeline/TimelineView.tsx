@@ -45,14 +45,13 @@ interface ScheduledMilestone {
 function computeSchedule(
   tasks: Task[],
   milestones: Milestone[],
-  goals: Map<string, Goal>,
+  _goals: Map<string, Goal>,
 ): { scheduledTasks: ScheduledTask[]; scheduledMilestones: ScheduledMilestone[] } {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   // Build task end-date map for dependency resolution
   const taskEndDates = new Map<string, Date>();
-  const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
   // First pass: compute dates for tasks with explicit dates
   for (const task of tasks) {
