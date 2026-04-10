@@ -93,7 +93,7 @@ if (count.c === 0) {
 // --- Query helpers ---
 
 export function getAllEntities() {
-  const rows = db.prepare('SELECT table_name, id, data FROM entities').all() as {
+  const rows = db.prepare('SELECT table_name, id, data FROM entities ORDER BY table_name, id').all() as {
     table_name: string; id: string; data: string;
   }[];
 
@@ -127,7 +127,7 @@ export function getLastModified(): string {
 
 export function getChangedEntitiesSince(since: string) {
   const rows = db.prepare(
-    'SELECT table_name, id, data FROM entities WHERE updated_at > ?'
+    'SELECT table_name, id, data FROM entities WHERE updated_at > ? ORDER BY table_name, id'
   ).all(since) as { table_name: string; id: string; data: string }[];
 
   const result: Record<string, Record<string, unknown>> = {};

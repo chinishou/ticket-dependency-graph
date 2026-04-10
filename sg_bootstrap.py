@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+import os
+import sys
+import json
+import argparse
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+SG_URL = os.environ.get("SG_URL", "https://wei-dev.shotgrid.autodesk.com")
+SCRIPT_NAME = os.environ.get("SCRIPT_NAME", "dev")
+API_KEY = os.environ.get("API_KEY", "")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin2026")
+APP_API_URL = os.environ.get("APP_API_URL", "http://localhost:3001")
+
+try:
+    import shotgun_api3
+    sg = shotgun_api3.Shotgun(SG_URL, script_name=SCRIPT_NAME, api_key=API_KEY)
+except ImportError:
+    print("ERROR: shotgun_api3 not installed. Run: pip install shotgun_api3")
+    sys.exit(1)
+
+# ---------------------------------------------------------------------------
+# Fetch helpers
+# ---------------------------------------------------------------------------
+
+def fetch_project_statuses():
+    """Return sorted list of distinct sg_status values across all non-template projects."""
+    rows = sg.find("Project", [["is_template", "is", False]], ["sg_status"])
+    return sorted({r.get("sg_status") for r in rows if r.get("sg_status")})
+
+def fetch_ticket_statuses():
+    """Return sorted list of distinct sg_status_list values across all tickets."""
+    rows = sg.find("Ticket", [], ["sg_status_list"])
+    return sorted({r.get("sg_status_list") for r in rows if r.get("sg_status_list")})
+
+def fetch_projects(statuses=None):
+    print("Fetching SG Projects...")
+    filters = [["is_template", "is", False]]
+    if statuses:
+        filters.append(["sg_status", "in", statuses])
+    fields = ["id", "code", "name", "description", "start_date", "due_date", "sg_duration_days"]
+    projects = sg.find("Project", filters=filters, fields=fields)
+    result = []
+    for p in projects:
+        name = p.get("code") or p.get("name") or f"Project {p['id']}"
+        result.append({
+            "id": p["id"],
+            "name": name,
+            "description": p.get("description") or "",
+            "startDate": p.get("start_date"),
+            "endDate": p.get("due_date"),
+            "durationDays": p.get("sg_duration_days"),
+        })
+    print(f"  Found {len(result)} projects")
+    return result
+
+def fetch_departments():
+    print("Fetching SG Departments...")
+    fields = ["id", "name", "description"]
+    depts = sg.find("Department", [], fields)
+    result = []
+    for d in depts:
+        result.append({
+            "id": d["id"],
+            "name": d.get("name") or f"Department {d['id']}",
+            "description": d.get("description") or "",
+        })
+    print(f"  Found {len(result)} departments")
+    return result
+
+def fetch_workers():
+    print("Fetching SG HumanUsers...")
+    fields = ["id", "name", "permission_group", "department"]
+    users = sg.find("HumanUser", filters=[], fields=fields)
+    result = []
+    for u in users:
+        dept = u.get("department")
+        result.append({
+            "id": u["id"],
+            "name": u.get("name") or f"User {u['id']}",
+            "permissionGroup": u.get("permission_group"),
+            "departmentId": dept["id"] if dept else None,
+            "departmentName": dept["name"] if dept else None,
+        })
+    print(f"  Found {len(result)} users")
+    return result
+
+def fetch_ticket_by_id(ticket_id):
+    """Fetch a single ticket by SG ID and return the normalized payload dict."""
+    print(f"Fetching SG Ticket {ticket_id}...")
+    fields = [
+        "id", "title", "description", "project",
+        "sg_status_list", "sg_estimate", "time_logs_sum", "addressings_to",
+    ]
+    ticket = sg.find_one("Ticket", [["id", "is", ticket_id]], fields)
+    if not ticket:
+        raise RuntimeError(f"Ticket {ticket_id} not found in SG")
+    assigned = ticket.get("addressings_to") or []
+    assignee_list = []
+    for a in assigned:
+        if isinstance(a, dict):
+            assignee_list.append({"id": a["id"], "name": a.get("name", ""), "type": "HumanUser"})
+        else:
+            assignee_list.append({"id": a, "name": "", "type": "HumanUser"})
+    proj = ticket.get("project")
+    return {
+        "id": ticket["id"],
+        "title": ticket.get("title") or f"Ticket {ticket_id}",
+        "description": ticket.get("description") or "",
+        "project": {"id": proj["id"], "name": proj.get("name", ""), "type": "Project"} if proj else None,
+        "sgStatus": ticket.get("sg_status_list"),
+        "sgEstimate": ticket.get("sg_estimate"),
+        "timeLogsSum": ticket.get("time_logs_sum"),
+        "assignedTo": assignee_list,
+    }
+
+def fetch_tickets(statuses=None):
+    print("Fetching SG Tickets...")
+    fields = [
+        "id", "title", "description", "project",
+        "sg_status_list", "sg_estimate", "time_logs_sum", "addressings_to",
+        "sg_task_ticket_relationship",
+    ]
+    if statuses:
+        filters = [["sg_status_list", "in", statuses]]
+    else:
+        filters = [["sg_status_list", "is_not", "Closed"]]
+    tickets = sg.find("Ticket", filters=filters, fields=fields)
+    result = []
+    for t in tickets:
+        assigned = t.get("addressings_to") or []
+        assignee_list = []
+        for a in assigned:
+            if isinstance(a, dict):
+                assignee_list.append({"id": a["id"], "name": a.get("name", ""), "type": "HumanUser"})
+            else:
+                assignee_list.append({"id": a, "name": "", "type": "HumanUser"})
+        proj = t.get("project")
+        result.append({
+            "id": t["id"],
+            "title": t.get("title", f"Ticket {t['id']}"),
+            "description": t.get("description") or "",
+            "project": {"id": proj["id"], "name": proj.get("name", ""), "type": "Project"} if proj else None,
+            "sgStatus": t.get("sg_status_list"),
+            "sgEstimate": t.get("sg_estimate"),
+            "timeLogsSum": t.get("time_logs_sum"),
+            "assignedTo": assignee_list,
+        })
+    print(f"  Found {len(result)} tickets")
+    return result
+
+def derive_site_name(sg_url):
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(sg_url).hostname or sg_url
+        return host.split(".")[0] if host else "ShotGrid"
+    except Exception:
+        return "ShotGrid"
+
+# ---------------------------------------------------------------------------
+# API helpers
+# ---------------------------------------------------------------------------
+
+TICKET_BATCH_SIZE = 200
+
+def post(path, payload, timeout=60):
+    url = f"{APP_API_URL}{path}"
+    resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=timeout)
+    if resp.status_code not in (200, 201):
+        raise RuntimeError(f"POST {path} failed {resp.status_code}: {resp.text[:300]}")
+    return resp.json()
+
+# ---------------------------------------------------------------------------
+# Subcommand handlers
+# ---------------------------------------------------------------------------
+
+def cmd_list_statuses(_args):
+    """Output JSON with available project and ticket statuses from SG."""
+    result = {
+        "projectStatuses": fetch_project_statuses(),
+        "ticketStatuses": fetch_ticket_statuses(),
+    }
+    print(json.dumps(result))
+
+def cmd_sync_projects(args):
+    statuses = args.statuses.split(",") if args.statuses else None
+    projects = fetch_projects(statuses=statuses)
+    post("/api/sg/bootstrap", {"adminPassword": ADMIN_PASSWORD, "projects": projects, "tickets": []})
+    print(f"Synced {len(projects)} projects")
+
+def cmd_sync_departments(_args):
+    departments = fetch_departments()
+    post("/api/sg/sync-departments", {"adminPassword": ADMIN_PASSWORD, "departments": departments})
+    print(f"Synced {len(departments)} departments")
+
+def cmd_sync_workers(_args):
+    workers = fetch_workers()
+    post("/api/sg/bootstrap", {"adminPassword": ADMIN_PASSWORD, "workers": workers, "tickets": []})
+    print(f"Synced {len(workers)} workers")
+
+def cmd_sync_tickets(args):
+    statuses = args.statuses.split(",") if args.statuses else None
+    tickets = fetch_tickets(statuses=statuses)
+    total = len(tickets)
+    synced = 0
+    for i in range(0, max(total, 1), TICKET_BATCH_SIZE):
+        batch = tickets[i:i + TICKET_BATCH_SIZE]
+        if batch:
+            post("/api/sg/bootstrap", {"adminPassword": ADMIN_PASSWORD, "tickets": batch})
+        synced += len(batch)
+        print(f"  Tickets synced: {synced}/{total}")
+    print(f"Synced {total} tickets")
+
+def cmd_sync_ticket_by_id(args):
+    ticket_id = int(args.id)
+    payload = fetch_ticket_by_id(ticket_id)
+    post("/api/sg/bootstrap", {"adminPassword": ADMIN_PASSWORD, "tickets": [payload]})
+    print(f"Synced ticket {ticket_id}: {payload['title']}")
+
+def cmd_bootstrap(_args):
+    print("=" * 50)
+    print("SG Bootstrap — Full sync from Flow Production Tracking")
+    print("=" * 50)
+    site_name = derive_site_name(SG_URL)
+    departments = fetch_departments()
+    post("/api/sg/sync-departments", {"adminPassword": ADMIN_PASSWORD, "departments": departments})
+    print(f"  Departments synced: {len(departments)}")
+
+    projects = fetch_projects()
+    workers = fetch_workers()
+    post("/api/sg/bootstrap", {
+        "adminPassword": ADMIN_PASSWORD,
+        "siteName": site_name,
+        "projects": projects,
+        "workers": workers,
+        "tickets": [],
+    })
+    print(f"  Projects synced: {len(projects)}")
+    print(f"  Workers synced:  {len(workers)}")
+
+    tickets = fetch_tickets()
+    total = len(tickets)
+    synced = 0
+    for i in range(0, max(total, 1), TICKET_BATCH_SIZE):
+        batch = tickets[i:i + TICKET_BATCH_SIZE]
+        if batch:
+            post("/api/sg/bootstrap", {"adminPassword": ADMIN_PASSWORD, "tickets": batch})
+        synced += len(batch)
+        print(f"  Tickets synced: {synced}/{total}")
+
+    print(f"\nBootstrap SUCCESS! {len(departments)} depts, {len(projects)} projects, {len(workers)} workers, {total} tickets")
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="SG sync tool for task-tech-tree")
+    sub = parser.add_subparsers(dest="cmd")
+
+    sub.add_parser("list-statuses", help="Print available project/ticket statuses as JSON")
+
+    p_proj = sub.add_parser("sync-projects", help="Sync projects (optionally filter by status)")
+    p_proj.add_argument("--statuses", help="Comma-separated sg_status values to include")
+
+    sub.add_parser("sync-departments", help="Sync departments from SG")
+    sub.add_parser("sync-workers", help="Sync workers/users from SG")
+
+    p_tick = sub.add_parser("sync-tickets", help="Sync tickets (optionally filter by status)")
+    p_tick.add_argument("--statuses", help="Comma-separated sg_status_list values to include")
+
+    p_one = sub.add_parser("sync-ticket-by-id", help="Re-sync a single ticket by SG ID")
+    p_one.add_argument("--id", required=True, help="SG Ticket ID to sync")
+
+    sub.add_parser("bootstrap", help="Full bootstrap (all entities)")
+
+    args = parser.parse_args()
+
+    handlers = {
+        "list-statuses": cmd_list_statuses,
+        "sync-projects": cmd_sync_projects,
+        "sync-departments": cmd_sync_departments,
+        "sync-workers": cmd_sync_workers,
+        "sync-tickets": cmd_sync_tickets,
+        "sync-ticket-by-id": cmd_sync_ticket_by_id,
+        "bootstrap": cmd_bootstrap,
+        None: cmd_bootstrap,  # default: full bootstrap for backward compat
+    }
+    handler = handlers.get(args.cmd, cmd_bootstrap)
+    try:
+        handler(args)
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)

@@ -83,12 +83,17 @@ export interface Project {
   id: string;
   name: string;
   description: string;
-  deadline: string; // ISO date
+  deadline: string;
   strategicPriority: StrategicPriority;
   status: ProjectStatus;
   contributingDepartmentIds: string[];
   goalIds: string[];
   milestoneIds: string[];
+  sgProjectId?: number;
+  startDate?: string;
+  endDate?: string;
+  durationDays?: number;
+  syncSource?: 'sg';
 }
 
 export interface Goal {
@@ -103,6 +108,18 @@ export interface Goal {
   milestoneIds: string[];
   dependsOnGoalIds: string[];
   unlocksGoalIds: string[];
+}
+
+export interface SgAssignee {
+  id: number;
+  name: string;
+  type: string;
+}
+
+export interface SgProject {
+  id: number;
+  name: string;
+  type: string;
 }
 
 export interface Task {
@@ -126,6 +143,17 @@ export interface Task {
   startedAt?: string;
   completedAt?: string;
   dueDate?: string;
+  sgTicketId?: number;
+  sgProjectId?: number;
+  sgProjectName?: string;
+  sgStatus?: string;
+  sgEstimate?: number;
+  sgTimeLogged?: number;
+  sgAssignedTo?: SgAssignee[];
+  archived?: boolean;
+  archivedAt?: string;
+  syncSource?: 'sg';
+  unplaced?: boolean;
 }
 
 export interface Milestone {
@@ -152,6 +180,9 @@ export interface Worker {
   assignedTaskIds: string[];
   availability: WorkerAvailability;
   isLead?: boolean;
+  sgUserId?: number;
+  permissionGroup?: string;
+  syncSource?: 'sg';
 }
 
 // === Computed helpers ===

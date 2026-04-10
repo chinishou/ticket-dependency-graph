@@ -15,6 +15,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useStore } from '../../store/useStore';
+import { usePermission } from '../../hooks/usePermission';
 import { buildGraphLayout, type GraphNodeData } from '../../utils/graphLayout';
 import { getEtaDays } from '../../types';
 import type { Milestone } from '../../types';
@@ -51,8 +52,11 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
   const updateTask = useStore((s) => s.updateTask);
   const updateMilestone = useStore((s) => s.updateMilestone);
   const addMilestone = useStore((s) => s.addMilestone);
+  const removeTaskFromGoal = useStore((s) => s.removeTaskFromGoal);
+  const removeMilestoneFromGoal = useStore((s) => s.removeMilestoneFromGoal);
   const userName = useStore((s) => s.userName);
   const heartbeat = useStore((s) => s.heartbeatPresence);
+  const { canEditTasks } = usePermission();
   const getOtherViewers = useStore((s) => s.getOtherViewers);
 
   const [showUnplaced, setShowUnplaced] = useState(false);
@@ -223,6 +227,16 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
     for (const edge of deletedEdges) removeConnection(edge.source, edge.target);
   }, [removeConnection]);
 
+  const onNodesDelete = useCallback((deletedNodes: Node<GraphNodeData>[]) => {
+    for (const node of deletedNodes) {
+      if (node.type === 'milestoneNode') {
+        removeMilestoneFromGoal(goalId, node.id);
+      } else {
+        removeTaskFromGoal(goalId, node.id);
+      }
+    }
+  }, [goalId, removeTaskFromGoal, removeMilestoneFromGoal]);
+
   const isValidConnection = useCallback((connection: Edge | Connection) => {
     if (connection.source === connection.target) return false;
     return !editEdges.find((e) => e.source === connection.source && e.target === connection.target);
@@ -262,6 +276,7 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
         onEdgesChange={editMode ? onEdgesChange : undefined}
         onConnect={editMode ? onConnect : undefined}
         onEdgesDelete={editMode ? onEdgesDelete : undefined}
+        onNodesDelete={editMode ? onNodesDelete : undefined}
         isValidConnection={editMode ? isValidConnection : undefined}
         nodeTypes={nodeTypes}
         nodesDraggable={editMode}
@@ -325,30 +340,34 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
         >
           Tickets
         </button>
-        <button
-          onClick={toggleEditMode}
-          title={editMode ? 'Exit edit mode' : 'Enter edit mode'}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: editMode ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
-            color: editMode ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
-          }}
-        >
-          {editMode ? 'Editing' : 'Edit'}
-        </button>
-        {editMode && (
+        {canEditTasks && (
+          <button
+            onClick={toggleEditMode}
+            title={editMode ? 'Exit edit mode' : 'Enter edit mode'}
+            style={{
+              ...toolbarButtonStyle,
+              backgroundColor: editMode ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
+              color: editMode ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
+            }}
+          >
+            {editMode ? 'Editing' : 'Edit'}
+          </button>
+        )}
+        {canEditTasks && editMode && (
           <button onClick={applyAutoLayout} style={toolbarButtonStyle}>Auto Layout</button>
         )}
-        <button
-          onClick={() => setShowCreateMilestone(!showCreateMilestone)}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: showCreateMilestone ? '#f59e0b' : 'var(--color-bg-secondary)',
-            color: showCreateMilestone ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
-          }}
-        >
-          + Milestone
-        </button>
+        {canEditTasks && (
+          <button
+            onClick={() => setShowCreateMilestone(!showCreateMilestone)}
+            style={{
+              ...toolbarButtonStyle,
+              backgroundColor: showCreateMilestone ? '#f59e0b' : 'var(--color-bg-secondary)',
+              color: showCreateMilestone ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
+            }}
+          >
+            + Milestone
+          </button>
+        )}
       </div>
 
       {/* Create milestone form */}

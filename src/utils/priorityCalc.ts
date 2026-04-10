@@ -79,9 +79,8 @@ export function computeCreatorFactor(isLead: boolean): number {
 function computeGraphFactors(
   tasks: Map<string, Task>,
   milestones: Map<string, Milestone>,
-  goals: Map<string, Goal>,
 ): { graphScores: Map<string, number>; downstreamCounts: Map<string, number>; criticalTasks: Set<string> } {
-  const taskArr = Array.from(tasks.values());
+  const taskArr = Array.from(tasks.values()).filter(t => !(t as { archived?: boolean }).archived);
 
   // 1. Compute downstream count for each task
   const downstreamCache = new Map<string, Set<string>>();
@@ -184,11 +183,13 @@ export function computeTaskPriorities({
   weights,
 }: PriorityInput): Map<string, TaskPriority> {
   const w = weights && 'goal' in weights ? weights : DEFAULT_WEIGHTS;
-  const { graphScores, downstreamCounts, criticalTasks } = computeGraphFactors(tasks, milestones, goals);
+  const { graphScores, downstreamCounts, criticalTasks } = computeGraphFactors(tasks, milestones);
 
   const result = new Map<string, TaskPriority>();
 
   for (const task of tasks.values()) {
+    if ((task as { archived?: boolean }).archived) continue;
+
     const goal = goals.get(task.goalId);
 
     // Project factor: look up project priority for this task's goal

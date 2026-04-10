@@ -34,21 +34,21 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
 
   const activeTasks = (worker.activeTaskIds ?? [])
     .map((id) => tasksMap.get(id))
-    .filter(Boolean) as Task[];
+    .filter((t): t is Task => !!t && !t.archived);
 
   const activeTaskIdSet = new Set(worker.activeTaskIds ?? []);
 
-  // Queue: assigned but not active
+  // Queue: assigned but not active, excluding archived
   const queueTasks = (worker.assignedTaskIds ?? [])
     .filter((id) => !activeTaskIdSet.has(id))
     .map((id) => tasksMap.get(id))
-    .filter(Boolean) as Task[];
+    .filter((t): t is Task => !!t && !t.archived);
   queueTasks.sort((a, b) => (priorities.get(b.id)?.score ?? 0) - (priorities.get(a.id)?.score ?? 0));
 
   // Up Next: top 5 from queue
   const upNextTasks = queueTasks.slice(0, 5);
 
-  // Unlocked by active tasks
+  // Unlocked by active tasks (exclude archived)
   const unlockedTaskIds = new Set<string>();
   for (const at of activeTasks) {
     for (const uid of at.unlocksTaskIds) unlockedTaskIds.add(uid);
@@ -56,7 +56,7 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
   for (const id of activeTaskIdSet) unlockedTaskIds.delete(id);
   const unlockedTasks = Array.from(unlockedTaskIds)
     .map((id) => tasksMap.get(id))
-    .filter(Boolean) as Task[];
+    .filter((t): t is Task => !!t && !t.archived);
 
   const handleStatusChange = (taskId: string, status: 'in_progress' | 'paused' | 'completed') => {
     const updates: Partial<Task> = { status };

@@ -82,6 +82,11 @@ button:active:not(:disabled) {
   transform: scale(0.97);
 }
 
+/* Spinner */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* View transition fade-in */
 @keyframes viewFadeIn {
   from { opacity: 0; transform: translateY(4px); }

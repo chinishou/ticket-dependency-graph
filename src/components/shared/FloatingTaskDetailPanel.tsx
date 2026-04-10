@@ -114,28 +114,30 @@ export function FloatingTaskDetailPanel({ onGoToTechTree, onClose }: FloatingTas
         </div>
       )}
 
-      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--color-bg-tertiary)' }}>
-        <button
-          onClick={() => onGoToTechTree(task.goalId, task.id)}
-          style={{
-            width: '100%',
-            padding: '8px 12px',
-            borderRadius: 6,
-            border: '1px solid var(--color-accent)',
-            backgroundColor: 'rgba(99, 102, 241, 0.1)',
-            color: 'var(--color-accent)',
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-          }}
-        >
-          View in Tech Tree
-        </button>
-      </div>
+      {!task.unplaced && (
+        <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--color-bg-tertiary)' }}>
+          <button
+            onClick={() => onGoToTechTree(task.goalId, task.id)}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: '1px solid var(--color-accent)',
+              backgroundColor: 'rgba(99, 102, 241, 0.1)',
+              color: 'var(--color-accent)',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+            }}
+          >
+            View in Tech Tree
+          </button>
+        </div>
+      )}
     </div>
   );
 }

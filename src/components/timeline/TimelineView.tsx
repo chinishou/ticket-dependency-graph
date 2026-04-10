@@ -188,7 +188,10 @@ export function TimelineView({ onSelectGoal }: TimelineViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hoveredTask, setHoveredTask] = useState<string | null>(null);
 
-  const allTasks = useMemo(() => Array.from(tasksMap.values()), [tasksMap]);
+  const allTasks = useMemo(
+    () => Array.from(tasksMap.values()).filter((t) => !t.unplaced && !t.archived),
+    [tasksMap],
+  );
   const allMilestones = useMemo(() => Array.from(milestonesMap.values()), [milestonesMap]);
 
   const { scheduledTasks, scheduledMilestones } = useMemo(

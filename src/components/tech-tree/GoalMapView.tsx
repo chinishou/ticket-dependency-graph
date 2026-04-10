@@ -16,6 +16,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import Dagre from '@dagrejs/dagre';
 import { useStore } from '../../store/useStore';
+import { usePermission } from '../../hooks/usePermission';
 import type { Goal } from '../../types';
 import { GoalNode, type GoalNodeData } from './GoalNode';
 
@@ -86,11 +87,15 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
   const tasksMap = useStore((s) => s.tasks);
   const updateGoal = useStore((s) => s.updateGoal);
   const addGoal = useStore((s) => s.addGoal);
+  const removeGoal = useStore((s) => s.removeGoal);
   const userName = useStore((s) => s.userName);
   const heartbeat = useStore((s) => s.heartbeatPresence);
   const getOtherViewers = useStore((s) => s.getOtherViewers);
+  const { canEditTasks } = usePermission();
 
   const [editMode, setEditMode] = useState(false);
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const lastClickRef = useRef<{ id: string; time: number } | null>(null);
 
   // Auto-register presence
   const presenceScope = `goal-map:${parentId}`;
@@ -212,19 +217,34 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
     }
   }, [goalsMap, updateGoal]);
 
+  const onNodesDelete = useCallback((deletedNodes: Node<GoalNodeData>[]) => {
+    for (const node of deletedNodes) {
+      removeGoal(node.id);
+    }
+  }, [removeGoal]);
+
   const isValidConnection = useCallback((connection: Edge | Connection) => {
     if (connection.source === connection.target) return false;
     return !editEdges.find((e) => e.source === connection.source && e.target === connection.target);
   }, [editEdges]);
 
-  const onNodeDoubleClick = useCallback(
-    (_: React.MouseEvent, node: { id: string }) => { onSelectGoal(node.id); },
-    [onSelectGoal],
-  );
-
+  // onNodeDoubleClick may not fire when elementsSelectable={false}, so detect
+  // double-click manually inside onNodeClick using a 300ms window.
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: { id: string }) => {
-      if (!editMode) onSelectGoal(node.id);
+      if (editMode) return;
+      const now = Date.now();
+      const last = lastClickRef.current;
+      if (last && last.id === node.id && now - last.time < 300) {
+        // Double-click detected — open tech tree
+        lastClickRef.current = null;
+        setSelectedGoalId(null);
+        onSelectGoal(node.id);
+      } else {
+        // Single-click — toggle selection highlight
+        lastClickRef.current = { id: node.id, time: now };
+        setSelectedGoalId((prev) => prev === node.id ? null : node.id);
+      }
     },
     [editMode, onSelectGoal],
   );
@@ -239,11 +259,11 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
         nodes={editMode ? editNodes : layoutNodes}
         edges={editMode ? editEdges : layoutEdges}
         onNodeClick={onNodeClick}
-        onNodeDoubleClick={onNodeDoubleClick}
         onNodesChange={editMode ? onNodesChange : undefined}
         onEdgesChange={editMode ? onEdgesChange : undefined}
         onConnect={editMode ? onConnect : undefined}
         onEdgesDelete={editMode ? onEdgesDelete : undefined}
+        onNodesDelete={editMode ? onNodesDelete : undefined}
         isValidConnection={editMode ? isValidConnection : undefined}
         nodeTypes={nodeTypes}
         nodesDraggable={editMode}
@@ -285,30 +305,42 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
 
       {/* Toolbar */}
       <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 6, zIndex: 5 }}>
-        <button
-          onClick={toggleEditMode}
-          title={editMode ? 'Exit edit mode' : 'Enter edit mode'}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: editMode ? '#a78bfa' : 'var(--color-bg-secondary)',
-            color: editMode ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
-          }}
-        >
-          {editMode ? 'Editing' : 'Edit'}
-        </button>
-        {editMode && (
+        {canEditTasks && (
+          <button
+            onClick={toggleEditMode}
+            title={editMode ? 'Exit edit mode' : 'Enter edit mode'}
+            style={{
+              ...toolbarButtonStyle,
+              backgroundColor: editMode ? '#a78bfa' : 'var(--color-bg-secondary)',
+              color: editMode ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
+            }}
+          >
+            {editMode ? 'Editing' : 'Edit'}
+          </button>
+        )}
+        {canEditTasks && editMode && (
           <button onClick={applyAutoLayout} style={toolbarButtonStyle}>Auto Layout</button>
         )}
-        <button
-          onClick={() => setShowCreateGoal(!showCreateGoal)}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: showCreateGoal ? '#a78bfa' : 'var(--color-bg-secondary)',
-            color: showCreateGoal ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
-          }}
-        >
-          + Goal
-        </button>
+        {canEditTasks && (
+          <button
+            onClick={() => setShowCreateGoal(!showCreateGoal)}
+            style={{
+              ...toolbarButtonStyle,
+              backgroundColor: showCreateGoal ? '#a78bfa' : 'var(--color-bg-secondary)',
+              color: showCreateGoal ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
+            }}
+          >
+            + Goal
+          </button>
+        )}
+        {canEditTasks && selectedGoalId && !editMode && (
+          <button
+            onClick={() => { removeGoal(selectedGoalId); setSelectedGoalId(null); }}
+            style={{ ...toolbarButtonStyle, borderColor: 'var(--color-blocked)', color: 'var(--color-blocked)' }}
+          >
+            Remove Goal
+          </button>
+        )}
       </div>
 
       {/* Create goal form */}
@@ -379,14 +411,30 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
         </div>
       )}
 
-      {!editMode && (
+      {!editMode && parentGoals.length > 0 && (
         <div style={{
           position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)',
           padding: '6px 16px', borderRadius: 6,
           backgroundColor: 'rgba(167, 139, 250, 0.1)', border: '1px solid rgba(167, 139, 250, 0.2)',
           color: 'var(--color-text-muted)', fontSize: 11, zIndex: 5, pointerEvents: 'none',
         }}>
-          Click a goal to open its tech tree
+          Click to select · Double-click to open tech tree
+        </div>
+      )}
+
+      {parentGoals.length === 0 && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 12, zIndex: 4,
+          pointerEvents: 'none',
+        }}>
+          <div style={{ fontSize: 36, opacity: 0.3 }}>🌳</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)', opacity: 0.6 }}>
+            No goals yet
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-muted)', textAlign: 'center', maxWidth: 280 }}>
+            Use the <strong>+ Goal</strong> button above to create the first goal for this {parentType}.
+          </div>
         </div>
       )}
     </div>

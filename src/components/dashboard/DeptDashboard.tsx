@@ -43,7 +43,7 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
       .map((id) => workers.get(id))
       .filter(Boolean)
       .map((w) => {
-        const activeIds = w!.activeTaskIds ?? [];
+        const activeIds = (w!.activeTaskIds ?? []).filter(id => !tasks.get(id)?.archived);
         const firstActiveTask = activeIds.length > 0 ? tasks.get(activeIds[0]) : null;
         return {
           id: w!.id,

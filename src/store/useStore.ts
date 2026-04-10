@@ -1,10 +1,6 @@
 import { create } from 'zustand';
 import type { Company, Department, Project, Goal, Task, Milestone, Worker, CalibrationWeights, UserRole } from '../types';
 import {
-  company as mockCompany, departments as mockDepartments, projects as mockProjects,
-  goals as mockGoals, tasks as mockTasks, milestones as mockMilestones, workers as mockWorkers,
-} from '../data/mockData';
-import {
   notifyTaskAssigned,
   notifyTaskStatusChanged,
   notifyTaskCompleted,
@@ -54,6 +50,7 @@ interface AppState {
   setUserWorkerId: (id: string | null) => void;
   adminPassword: string | null;
   upgradeToAdmin: (password: string) => Promise<boolean>;
+  sgBootstrap: () => Promise<boolean>;
 
   // Locks
   locks: Map<string, LockInfo>;
@@ -88,9 +85,11 @@ interface AppState {
   updateDepartment: (deptId: string, updates: Partial<Department>) => void;
   updateWorker: (workerId: string, updates: Partial<Worker>) => void;
   addGoal: (goal: Goal) => void;
+  removeGoal: (goalId: string) => void;
   addMilestone: (milestone: Milestone) => void;
   addTaskToGoal: (goalId: string, task: Task) => void;
   removeTaskFromGoal: (goalId: string, taskId: string) => void;
+  removeMilestoneFromGoal: (goalId: string, milestoneId: string) => void;
 
   // Data loading
   fetchState: () => Promise<void>;
@@ -107,9 +106,6 @@ interface AppState {
   getRelatedNodeIds: (nodeId: string) => Set<string>;
 }
 
-function toMap<T extends { id: string }>(items: T[]): Map<string, T> {
-  return new Map(items.map((item) => [item.id, item]));
-}
 
 function objectToMap<T extends { id: string }>(obj: Record<string, T>): Map<string, T> {
   return new Map(Object.entries(obj));
@@ -162,14 +158,14 @@ async function serverMutation(type: string, body: Record<string, unknown>, set: 
 }
 
 export const useStore = create<AppState>((set, get) => ({
-  // Initialize with mock data as fallback (overwritten by fetchState)
-  company: mockCompany,
-  departments: toMap(mockDepartments),
-  projects: toMap(mockProjects),
-  goals: toMap(mockGoals),
-  tasks: toMap(mockTasks),
-  milestones: toMap(mockMilestones),
-  workers: toMap(mockWorkers),
+  // Start empty — fetchState fills from server
+  company: { id: '', name: '' },
+  departments: new Map(),
+  projects: new Map(),
+  goals: new Map(),
+  tasks: new Map(),
+  milestones: new Map(),
+  workers: new Map(),
 
   isLoading: false,
   isConnected: false,
@@ -177,17 +173,28 @@ export const useStore = create<AppState>((set, get) => ({
 
   calibrationWeights: undefined,
 
-  userName: typeof window !== 'undefined' ? localStorage.getItem('tech-tree-user') : null,
+  userName: (() => {
+    if (typeof window === 'undefined') return null;
+    const v = localStorage.getItem('tech-tree-user');
+    // Defensive: localStorage round-trips may have stringified `undefined`/`null`
+    return v && v !== 'undefined' && v !== 'null' ? v : null;
+  })(),
   setUserName: (name) => {
     if (name) {
       localStorage.setItem('tech-tree-user', name);
       const workers = get().workers;
-      const matchedWorker = Array.from(workers.values()).find(w => w.name === name);
+      // Case-insensitive lookup since SG names may have inconsistent casing.
+      const matchedWorker = Array.from(workers.values()).find(
+        w => (w.name ?? '').toLowerCase() === name.toLowerCase(),
+      );
       if (matchedWorker) {
         localStorage.setItem('tech-tree-worker-id', matchedWorker.id);
         set({ userName: name, userWorkerId: matchedWorker.id, adminPassword: get().adminPassword });
       } else {
-        set({ userName: name, adminPassword: get().adminPassword });
+        // Don't leave a stale worker id in localStorage when the new name doesn't
+        // match — otherwise MyTasksView shows a worker picker on next reload.
+        localStorage.removeItem('tech-tree-worker-id');
+        set({ userName: name, userWorkerId: null, adminPassword: get().adminPassword });
       }
       fetch('/api/users', {
         method: 'POST',
@@ -228,7 +235,16 @@ export const useStore = create<AppState>((set, get) => ({
     set({ userRole: role });
   },
 
-  userWorkerId: typeof window !== 'undefined' ? localStorage.getItem('tech-tree-worker-id') : null,
+  userWorkerId: (() => {
+    if (typeof window === 'undefined') return null;
+    const v = localStorage.getItem('tech-tree-worker-id');
+    // Defensive: an earlier bug persisted the literal string `"undefined"` here
+    if (!v || v === 'undefined' || v === 'null') {
+      localStorage.removeItem('tech-tree-worker-id');
+      return null;
+    }
+    return v;
+  })(),
   setUserWorkerId: (id) => {
     if (id) {
       localStorage.setItem('tech-tree-worker-id', id);
@@ -256,6 +272,26 @@ export const useStore = create<AppState>((set, get) => ({
           set({ userRole: 'admin', adminPassword: password });
           return true;
         }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  },
+
+  sgBootstrap: async () => {
+    try {
+      const res = await fetch('/api/sg/bootstrap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword: get().adminPassword }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.entities) {
+          set({ ...applyEntities(data.entities), lastModified: data.lastModified });
+        }
+        return true;
       }
       return false;
     } catch {
@@ -354,6 +390,14 @@ export const useStore = create<AppState>((set, get) => ({
       if (res.ok) {
         const data = await res.json();
         const updates: Partial<AppState> = {
+          // Pre-reset all collection entities so a full state fetch
+          // reflects the server truthfully (absent key = empty collection).
+          departments: new Map(),
+          projects: new Map(),
+          goals: new Map(),
+          tasks: new Map(),
+          milestones: new Map(),
+          workers: new Map(),
           ...applyEntities(data.entities),
           locks: applyLocks(data.locks),
           presence: data.presence || [],
@@ -364,10 +408,18 @@ export const useStore = create<AppState>((set, get) => ({
         const currentUserName = get().userName;
         if (currentUserName) {
           const workers = new Map(Object.entries(data.entities?.workers || {})) as Map<string, Worker>;
-          const matchedWorker = Array.from(workers.values()).find(w => w.name === currentUserName);
+          // Case-insensitive — SG names may not exactly match how the user typed it
+          const matchedWorker = Array.from(workers.values()).find(
+            w => (w.name ?? '').toLowerCase() === currentUserName.toLowerCase(),
+          );
           if (matchedWorker) {
             updates.userWorkerId = matchedWorker.id;
             localStorage.setItem('tech-tree-worker-id', matchedWorker.id);
+          } else {
+            // No match — clear any stale id so MyTasksView prompts the picker
+            // instead of showing data for the wrong worker.
+            updates.userWorkerId = null;
+            localStorage.removeItem('tech-tree-worker-id');
           }
         }
         set(updates);
@@ -497,13 +549,13 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
-    if (updates.status && updates.status !== existing.status) {
+    if (updates.status && updates.status !== existing.status && !existing.archived) {
       notifyTaskStatusChanged(existing.name, existing.status, updates.status, get().userName, existing.assignedWorkerIds);
       if (updates.status === 'completed') {
         notifyTaskCompleted(existing.name, get().userName, existing.assignedWorkerIds);
         for (const childId of existing.unlocksTaskIds) {
           const child = newTasks.get(childId);
-          if (child && child.status === 'locked') {
+          if (child && child.status === 'locked' && !child.archived) {
             notifyDependencyCompleted(existing.name, child.name, child.assignedWorkerIds);
           }
         }
@@ -712,6 +764,30 @@ export const useStore = create<AppState>((set, get) => ({
     serverMutation('addGoal', { goal }, set, get);
   },
 
+  removeGoal: (goalId) => {
+    const newGoals = new Map(get().goals);
+    const goal = newGoals.get(goalId);
+    if (!goal) return;
+    newGoals.delete(goalId);
+
+    // Remove from parent's goalIds
+    if (goal.parentType === 'department') {
+      const newDepts = new Map(get().departments);
+      const dept = newDepts.get(goal.parentId);
+      if (dept) newDepts.set(goal.parentId, { ...dept, goalIds: dept.goalIds.filter((id) => id !== goalId) });
+      set({ goals: newGoals, departments: newDepts });
+    } else if (goal.parentType === 'project') {
+      const newProjects = new Map(get().projects);
+      const proj = newProjects.get(goal.parentId);
+      if (proj) newProjects.set(goal.parentId, { ...proj, goalIds: proj.goalIds.filter((id) => id !== goalId) });
+      set({ goals: newGoals, projects: newProjects });
+    } else {
+      set({ goals: newGoals });
+    }
+
+    serverMutation('removeGoal', { goalId }, set, get);
+  },
+
   addMilestone: (milestone) => {
     const newMilestones = new Map(get().milestones);
     newMilestones.set(milestone.id, milestone);
@@ -787,6 +863,40 @@ export const useStore = create<AppState>((set, get) => ({
     serverMutation('removeTaskFromGoal', { goalId, taskId }, set, get);
   },
 
+  removeMilestoneFromGoal: (goalId, milestoneId) => {
+    const newMilestones = new Map(get().milestones);
+    const newGoals = new Map(get().goals);
+    const newTasks = new Map(get().tasks);
+
+    const goal = newGoals.get(goalId);
+    if (goal) {
+      newGoals.set(goalId, { ...goal, milestoneIds: goal.milestoneIds.filter((id) => id !== milestoneId) });
+    }
+
+    const ms = newMilestones.get(milestoneId);
+    if (ms) {
+      // Unlink tasks that unlock this milestone
+      for (const taskId of ms.requiredTaskIds) {
+        const task = newTasks.get(taskId);
+        if (task) {
+          newTasks.set(taskId, {
+            ...task,
+            unlocksMilestoneIds: task.unlocksMilestoneIds.filter((id) => id !== milestoneId),
+          });
+        }
+      }
+      newMilestones.set(milestoneId, {
+        ...ms,
+        parentId: '',
+        requiredTaskIds: [],
+        requiredMilestoneIds: [],
+      });
+    }
+
+    set({ milestones: newMilestones, goals: newGoals, tasks: newTasks, selectedMilestoneId: null });
+    serverMutation('removeMilestoneFromGoal', { goalId, milestoneId }, set, get);
+  },
+
   setCalibrationWeights: (weights) => {
     notifyCalibrationChanged(get().userName ?? 'unknown');
     set({ calibrationWeights: weights });
@@ -831,7 +941,8 @@ export const useStore = create<AppState>((set, get) => ({
   getTasksForGoal: (goalId) => {
     const goal = get().goals.get(goalId);
     if (!goal) return [];
-    return goal.taskIds.map((id) => get().tasks.get(id)).filter(Boolean) as Task[];
+    return goal.taskIds.map((id) => get().tasks.get(id)).filter((t): t is Task => !!t);
+    // Note: archived tasks are intentionally kept here so the tech tree can render them (muted)
   },
 
   getMilestonesForGoal: (goalId) => {
@@ -866,7 +977,7 @@ export const useStore = create<AppState>((set, get) => ({
     const goal = get().goals.get(goalId);
     const placedIds = new Set(goal?.taskIds ?? []);
     return Array.from(get().tasks.values()).filter(
-      (t) => !placedIds.has(t.id) && (!t.goalId || t.goalId === '' || t.goalId === goalId),
+      (t) => !t.archived && !placedIds.has(t.id) && (!t.goalId || t.goalId === '' || t.goalId === goalId),
     );
   },
 

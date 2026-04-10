@@ -65,7 +65,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
 
         for (const taskId of goal.taskIds) {
           const task = tasks.get(taskId);
-          if (!task) continue;
+          if (!task || task.archived) continue;
           totalTasks++;
           if (task.status === 'completed') completedTasks++;
           if (task.status === 'blocked') blockedTasks++;
@@ -180,19 +180,20 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     return stats;
   }, [departments, workers, goals, milestones]);
 
-  // Sort projects: P1 first, then P2, etc.
+  // Sort projects: P1 first, then P2, etc. — null-safe for SG-imported rows
+  // that may briefly land with a missing name during bootstrap.
   const sortedProjects = useMemo(() => {
     return Array.from(projectStats.values()).sort((a, b) => {
-      const pa = a.project.strategicPriority;
-      const pb = b.project.strategicPriority;
+      const pa = a.project.strategicPriority || 'P3';
+      const pb = b.project.strategicPriority || 'P3';
       if (pa !== pb) return pa.localeCompare(pb);
-      return a.project.name.localeCompare(b.project.name);
+      return (a.project.name ?? '').localeCompare(b.project.name ?? '');
     });
   }, [projectStats]);
 
   const sortedDepartments = useMemo(() => {
     return Array.from(departmentStats.values()).sort((a, b) =>
-      a.department.name.localeCompare(b.department.name),
+      (a.department.name ?? '').localeCompare(b.department.name ?? ''),
     );
   }, [departmentStats]);
 

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../../store/useStore';
+import { SettingsSgSync } from './SettingsSgSync';
 import {
   DEFAULT_WEIGHTS,
   deriveWeightsFromCalibration,
@@ -432,6 +433,7 @@ export function SettingsView() {
   const setCalibrationWeights = useStore((s) => s.setCalibrationWeights);
   const workersMap = useStore((s) => s.workers);
   const updateWorker = useStore((s) => s.updateWorker);
+  const adminPassword = useStore((s) => s.adminPassword);
 
   const currentWeights = storeWeights && 'goal' in storeWeights ? storeWeights : DEFAULT_WEIGHTS;
 
@@ -451,7 +453,7 @@ export function SettingsView() {
 
   const allWorkers = useMemo(() => {
     const list = Array.from(workersMap.values())
-      .map((w) => ({ id: w.id, name: w.name, isLead: w.isLead ?? false }))
+      .map((w) => ({ id: w.id, name: w.name ?? '', isLead: w.isLead ?? false }))
       .sort((a, b) => {
         if (a.isLead !== b.isLead) return a.isLead ? -1 : 1;
         return a.name.localeCompare(b.name);
@@ -657,6 +659,9 @@ export function SettingsView() {
 
         {/* Role Management (Admin only) */}
         <RoleManagement />
+
+        {/* SG Sync (Admin only) */}
+        {adminPassword && <SettingsSgSync adminPassword={adminPassword} />}
       </div>
     </div>
   );

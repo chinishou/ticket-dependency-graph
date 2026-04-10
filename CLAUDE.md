@@ -154,3 +154,93 @@ Key fields:
 - `Worker.activeTaskIds: string[]` — multiple concurrent active tasks.
 - `Worker.assignedTaskIds: string[]` — full queue including non-active.
 - `Task.priorityOverride?: PriorityOverride` — manual score override with reason and snapshot.
+
+**ShotGrid-synced fields** (set by SG sync only, never written by the app):
+- `Task.sgTicketId`, `Task.sgProjectId`, `Task.sgStatus`, `Task.sgEstimate`, `Task.sgTimeLogged`, `Task.sgAssignedTo`
+- `Task.unplaced?: boolean` — task has no goal placement yet; visible in `UnplacedTasksPanel` in the Tech Tree view.
+- `Task.archived`, `Task.archivedAt`, `Task.syncSource` — same pattern on `Worker` and `Project`.
+- `Worker.sgUserId`, `Worker.permissionGroup`, `Worker.role` — role derived from SG permission group.
+- `Project.sgProjectId`, `Project.startDate`, `Project.endDate`, `Project.durationDays`.
+
+**Archived entity semantics:**
+- `archived: true` is a soft-delete; entity stays in DB and renders in the Tech Tree (muted, 40% opacity + 📁 badge) but is excluded from all other views, priority calculations, workload counts, and notification triggers.
+- `getTasksForGoal` intentionally includes archived tasks so the Tech Tree can render them with their dependency edges intact.
+- All other store getters and view components must filter `!t.archived`.
+
+## ShotGrid Sync System
+
+The app can be kept in sync with Flow Production Tracking (ShotGrid/SG). There are two sync paths:
+
+### 1. Bootstrap (one-time, manual)
+
+```bash
+# Requires shotgun_api3: pip install shotgun_api3
+python sg_bootstrap.py
+```
+
+Calls `POST /api/sg/bootstrap` with admin password. Runs in order: projects → workers → tickets. Uses `replaceProjectsFromSg` / `replaceWorkersFromSg` (delete-then-upsert for SG-sourced rows) then upserts all tickets. Stale worker references in tasks are cleaned up atomically.
+
+### 2. Live daemon sync (continuous, via sgEventDaemon)
+
+Three plugins in `shotgunEvents/src/` register callbacks with the sgEvent daemon:
+
+| Plugin | SG Events | App Endpoints |
+|--------|-----------|---------------|
+| `ticket_plugin.py` | `Shotgun_Ticket_New/Change/Retirement/Revival` | `/api/sg/sync/task`, `/api/sg/archive/task` |
+| `human_user_plugin.py` | `Shotgun_HumanUser_New/Change/Retirement` | `/api/sg/sync/worker`, `/api/sg/archive/worker` |
+| `project_plugin.py` | `Shotgun_Project_New/Change/Retirement` | `/api/sg/sync/project`, `/api/sg/archive/project` |
+
+All three import from `sg_common.py` for the shared `post_to_app()` helper (retry with 4xx-break).
+
+### SG API Routes (all in `server/routes.ts`)
+
+All routes below require `x-sg-secret` header matching `SG_INTERNAL_SECRET`. Bootstrap requires `adminPassword` in body instead.
+
+```
+POST /api/sg/sync/task        body: SgTicketPayload + optional goalId
+POST /api/sg/archive/task     body: { sgTicketId: number }
+POST /api/sg/sync/worker      body: SgUserPayload
+POST /api/sg/archive/worker   body: { sgUserId: number }
+POST /api/sg/sync/project     body: SgProjectPayload
+POST /api/sg/archive/project  body: { sgProjectId: number }
+POST /api/sg/bootstrap        body: { adminPassword, projects?, workers?, tickets? }
+```
+
+Entity IDs for SG-synced rows are always `sg-{sgId}`. The `syncSource: 'sg'` field marks them.
+
+### Source-of-truth split for Projects
+
+`upsertProjectFromSg` only overwrites SG-owned fields (`name`, `description`, `startDate`, `endDate`, `durationDays`, `sgProjectId`, `syncSource`). On **re-sync of an existing project**, local fields are never touched: `strategicPriority`, `status`, `contributingDepartmentIds`, `goalIds`, `milestoneIds`. Defaults (`P2`, `active`, `[]`) only apply on **first create**.
+
+### Status mapping (`mapSgStatusToTaskStatus` in `server/mutations.ts`)
+
+Keyword substring match (case-insensitive), first match wins, falls back to `'locked'`:
+
+| Keywords | → TaskStatus |
+|----------|-------------|
+| resolved, closed, final, done, complete | `completed` |
+| in progress, in_progress, ip, working | `in_progress` |
+| wait, ready, open, new, rev | `available` |
+| block, hold | `blocked` |
+| pause, stop | `paused` |
+
+### Role mapping (`upsertWorkerFromSg`)
+
+`permissionGroup` string (from SG) → local `role`:  Artist → `worker` · Manager → `coordinator` · Admin → `admin` · anything else → `worker`.
+
+### Required environment variables
+
+```bash
+# Shared (all plugins + routes)
+SG_INTERNAL_SECRET=sg-internal-dev-secret   # must match x-sg-secret header
+APP_API_URL=http://localhost:3001
+
+# Per-plugin daemon credentials (sgEvent script name + key from SG admin)
+SGDAEMON_TICKET_NAME=...        SGDAEMON_TICKET_KEY=...
+SGDAEMON_HUMANUSER_NAME=...     SGDAEMON_HUMANUSER_KEY=...
+SGDAEMON_PROJECT_NAME=...       SGDAEMON_PROJECT_KEY=...
+
+# Bootstrap script only
+SG_URL=https://your-site.shotgrid.autodesk.com
+SCRIPT_NAME=dev    API_KEY=...    ADMIN_PASSWORD=admin2026
+```

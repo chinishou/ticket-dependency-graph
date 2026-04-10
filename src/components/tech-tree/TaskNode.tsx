@@ -12,7 +12,10 @@ function TaskNodeComponent({ data, selected }: NodeProps & { data: TaskNodeData 
   const statusLabel = getStatusLabel(task.status);
   const isDone = task.status === 'completed';
   const isLocked = task.status === 'locked';
-  const baseOpacity = isLocked ? 0.5 : 1;
+  const isArchived = (task as { archived?: boolean }).archived;
+  const isSgBacked = (task as { syncSource?: string }).syncSource === 'sg';
+  let baseOpacity = isLocked ? 0.5 : 1;
+  if (isArchived) baseOpacity = 0.4;
   const opacity = dimmed ? 0.15 : baseOpacity;
 
   return (
@@ -52,6 +55,12 @@ function TaskNodeComponent({ data, selected }: NodeProps & { data: TaskNodeData 
             <span style={{ fontSize: 9, color: 'var(--color-text-muted)', marginLeft: 'auto' }}>
               {task.ticketId}
             </span>
+          )}
+          {isSgBacked && (
+            <span style={{ fontSize: 9, color: 'var(--color-accent)', marginLeft: 4 }} title="Synced from ShotGrid">SG</span>
+          )}
+          {isArchived && (
+            <span style={{ fontSize: 9, color: 'var(--color-text-muted)', marginLeft: 4 }} title="Archived">📁</span>
           )}
         </div>
 

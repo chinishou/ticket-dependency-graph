@@ -135,6 +135,7 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
   const updateTask = useStore((s) => s.updateTask);
   const updateMilestone = useStore((s) => s.updateMilestone);
   const removeTaskFromGoal = useStore((s) => s.removeTaskFromGoal);
+  const removeMilestoneFromGoal = useStore((s) => s.removeMilestoneFromGoal);
   const overridePriority = useStore((s) => s.overridePriority);
   const liftPriorityOverride = useStore((s) => s.liftPriorityOverride);
   const getTasksForGoal = useStore((s) => s.getTasksForGoal);
@@ -221,6 +222,21 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
           onItemClick={(id) => setSelectedMilestone(id)}
           readOnly={!canEditTasks}
         />
+
+        {canEditTasks && (
+          <div style={{ marginTop: 24, borderTop: '1px solid var(--color-bg-tertiary)', paddingTop: 12 }}>
+            <button
+              onClick={() => removeMilestoneFromGoal(goalId, selectedMilestoneId)}
+              style={{
+                width: '100%', padding: '8px', borderRadius: 6,
+                border: '1px solid var(--color-blocked)', background: 'transparent',
+                color: 'var(--color-blocked)', fontSize: 12, cursor: 'pointer',
+              }}
+            >
+              Remove from Goal
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -278,6 +294,9 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
             {task.ticketId && (
               <span style={{ fontSize: 10, color: 'var(--color-text-muted)', marginLeft: 6 }}>{task.ticketId}</span>
             )}
+            {(task as { syncSource?: string }).syncSource === 'sg' && (
+              <span style={{ fontSize: 9, backgroundColor: 'var(--color-accent)', color: 'var(--color-bg-primary)', padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>SG</span>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
@@ -309,6 +328,36 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
         <div style={metaRowStyle}>
           <span style={{ color: 'var(--color-text-muted)' }}>Current ETA</span>
           <span>{etaDays} days ({workerCount} worker{workerCount !== 1 ? 's' : ''})</span>
+        </div>
+      )}
+      {(task as { sgStatus?: string }).sgStatus && (
+        <div style={metaRowStyle}>
+          <span style={{ color: 'var(--color-text-muted)' }}>SG Status</span>
+          <span>{(task as { sgStatus?: string }).sgStatus}</span>
+        </div>
+      )}
+      {(task as { sgEstimate?: number }).sgEstimate && (
+        <div style={metaRowStyle}>
+          <span style={{ color: 'var(--color-text-muted)' }}>SG Estimate</span>
+          <span>{(task as { sgEstimate?: number }).sgEstimate} days</span>
+        </div>
+      )}
+      {(task as { sgTimeLogged?: number }).sgTimeLogged !== undefined && (
+        <div style={metaRowStyle}>
+          <span style={{ color: 'var(--color-text-muted)' }}>Time Logged</span>
+          <span>{(task as { sgTimeLogged?: number }).sgTimeLogged}h</span>
+        </div>
+      )}
+      {(task as { sgAssignedTo?: { id: number; name: string }[] }).sgAssignedTo && (task as { sgAssignedTo?: { id: number; name: string }[] }).sgAssignedTo!.length > 0 && (
+        <div style={metaRowStyle}>
+          <span style={{ color: 'var(--color-text-muted)' }}>Assigned To</span>
+          <span>{(task as { sgAssignedTo?: { id: number; name: string }[] }).sgAssignedTo!.map(a => a.name).join(', ')}</span>
+        </div>
+      )}
+      {(task as { archived?: boolean }).archived && (
+        <div style={{ ...metaRowStyle, opacity: 0.6 }}>
+          <span style={{ color: 'var(--color-text-muted)' }}>Archived</span>
+          <span style={{ fontSize: 11 }}>📁 This task is archived</span>
         </div>
       )}
       {task.status !== 'completed' && priorities.get(task.id) && (() => {

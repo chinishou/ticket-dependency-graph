@@ -78,6 +78,12 @@ function App() {
       : projectsMap.get(goal.parentId)
     : null;
 
+  // Fallback parent for goal-map when no goal is selected yet (e.g. after removing mock data)
+  const goalMapParentType: 'department' | 'project' = goal?.parentType ?? 'department';
+  const goalMapParentId: string =
+    goal?.parentId ??
+    (departmentsMap.size > 0 ? Array.from(departmentsMap.keys())[0] : Array.from(projectsMap.keys())[0] ?? '');
+
   const clearSelection = useCallback(() => {
     setSelectedTask(null);
     setSelectedMilestone(null);
@@ -245,11 +251,11 @@ function App() {
       )}
 
       {/* View A: Tech Tree */}
-      {topView === 'A' && subViewA === 'goal-map' && goal && parent && (
+      {topView === 'A' && subViewA === 'goal-map' && (
         <div key="goal-map" className="view-enter" style={{ width: '100%', height: '100%' }}>
           <GoalMapView
-            parentType={goal.parentType}
-            parentId={goal.parentId}
+            parentType={goalMapParentType}
+            parentId={goalMapParentId}
             onSelectGoal={handleGoalMapSelect}
           />
         </div>
