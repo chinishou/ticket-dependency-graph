@@ -77,6 +77,10 @@ interface AppState {
   overridePriority: (taskId: string, score: number, reason: string) => void;
   liftPriorityOverride: (taskId: string) => void;
 
+  // SG Priority auto-sync: when enabled, calculated priority (0-100) maps to SG priority (5-1)
+  sgPriorityAutoSync: boolean;
+  setSgPriorityAutoSync: (enabled: boolean) => void;
+
   // Mutations (still sync for local state, fire API in background)
   updateTask: (taskId: string, updates: Partial<Task>) => void;
   updateMilestone: (milestoneId: string, updates: Partial<Milestone>) => void;
@@ -174,6 +178,7 @@ export const useStore = create<AppState>((set, get) => ({
   lastModified: null,
 
   calibrationWeights: undefined,
+  sgPriorityAutoSync: false,
 
   userName: (() => {
     if (typeof window === 'undefined') return null;
@@ -904,17 +909,24 @@ export const useStore = create<AppState>((set, get) => ({
     set({ calibrationWeights: weights });
   },
 
+  setSgPriorityAutoSync: (enabled) => {
+    set({ sgPriorityAutoSync: enabled });
+  },
+
   overridePriority: (taskId, score, reason) => {
     const newTasks = new Map(get().tasks);
     const task = newTasks.get(taskId);
     if (!task) return;
+
+    // Clamp score to 0-100 range
+    const clampedScore = Math.max(0, Math.min(100, score));
 
     notifyPriorityOverridden(task.name, get().userName ?? 'unknown', reason, task.assignedWorkerIds);
 
     newTasks.set(taskId, {
       ...task,
       priorityOverride: {
-        score,
+        score: clampedScore,
         setBy: get().userName ?? 'unknown',
         setAt: new Date().toISOString(),
         reason,

@@ -1061,6 +1061,8 @@ export function SettingsView() {
   const storeWeights = useStore((s) => s.calibrationWeights);
   const setCalibrationWeights = useStore((s) => s.setCalibrationWeights);
   const adminPassword = useStore((s) => s.adminPassword);
+  const sgPriorityAutoSync = useStore((s) => s.sgPriorityAutoSync);
+  const setSgPriorityAutoSync = useStore((s) => s.setSgPriorityAutoSync);
 
   const currentWeights = storeWeights && 'goal' in storeWeights ? storeWeights : DEFAULT_WEIGHTS;
 
@@ -1197,6 +1199,61 @@ export function SettingsView() {
 
         {activeTab === 'sg' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* SG Priority Auto-Sync */}
+            <div style={sectionStyle}>
+              <h2 style={headingStyle}>Priority Auto-Sync</h2>
+              <p style={{ fontSize: 12, color: 'var(--color-text-muted)', margin: '0 0 12px' }}>
+                When enabled, the calculated priority score (0-100) will automatically sync back to ShotGrid as priority 5-1 (inverse mapping: 100=1, 0=5).
+              </p>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                <div
+                  onClick={() => {
+                    const newValue = !sgPriorityAutoSync;
+                    setSgPriorityAutoSync(newValue);
+                  }}
+                  style={{
+                    width: 44,
+                    height: 24,
+                    borderRadius: 12,
+                    backgroundColor: sgPriorityAutoSync ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                    border: `1px solid ${sgPriorityAutoSync ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                    position: 'relative',
+                    transition: 'background-color 0.2s',
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: '50%',
+                      backgroundColor: sgPriorityAutoSync ? '#0f172a' : 'var(--color-text-muted)',
+                      position: 'absolute',
+                      top: 2,
+                      left: sgPriorityAutoSync ? 22 : 2,
+                      transition: 'left 0.2s',
+                    }}
+                  />
+                </div>
+                <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
+                  {sgPriorityAutoSync ? 'Enabled' : 'Disabled'}
+                </span>
+              </label>
+              {sgPriorityAutoSync && (
+                <div style={{
+                  marginTop: 12,
+                  padding: '10px 14px',
+                  borderRadius: 6,
+                  backgroundColor: 'var(--color-bg-tertiary)',
+                  fontSize: 12,
+                  color: 'var(--color-text-muted)',
+                }}>
+                  <strong style={{ color: 'var(--color-text-secondary)' }}>Mapping:</strong> tech-tree score → SG priority<br/>
+                  100 → 1 (highest) · 75 → 2 · 50 → 3 · 25 → 4 · 0 → 5 (lowest)
+                </div>
+              )}
+            </div>
+
             <SgFieldMapping />
             {adminPassword && <SettingsSgSync adminPassword={adminPassword} />}
           </div>

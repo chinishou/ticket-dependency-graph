@@ -237,14 +237,14 @@ export function computeTaskPriorities({
     // Graph factor
     const graphFactor = graphScores.get(task.id) ?? 0;
 
-    // Weighted composite
-    const computedScore = Math.min(100, Math.round(
+    // Weighted composite (clamped to 0-100)
+    const computedScore = Math.max(0, Math.min(100, Math.round(
       w.project * projectFactor +
       w.dept * deptFactor +
       w.goal * goalFactor +
       w.creator * creatorFactor +
       w.graph * graphFactor
-    ));
+    )));
 
     // Effective score respects override
     const effectiveScore = task.priorityOverride != null
