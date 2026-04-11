@@ -810,6 +810,7 @@ export interface SgUserPayload {
   permissionGroup?: string;
   departmentId?: number;
   departmentName?: string;
+  sgStatus?: string;
 }
 
 export function upsertWorkerFromSg(payload: SgUserPayload) {
@@ -822,6 +823,20 @@ export function upsertWorkerFromSg(payload: SgUserPayload) {
     let role: 'worker' | 'coordinator' | 'admin' = 'worker';
     if (sgRole.includes('admin')) role = 'admin';
     else if (sgRole.includes('manager')) role = 'coordinator';
+
+    // Map SG user sg_status to WorkerAvailability
+    // Only sync if SG provides a status; otherwise preserve existing on re-sync, default to 'full' on first create
+    const sgStatus = payload.sgStatus?.toLowerCase() || '';
+    let availability: 'full' | 'partial' | 'unavailable' | undefined = undefined;
+    if (sgStatus) {
+      if (sgStatus.includes('disab') || sgStatus.includes('inactive') || sgStatus.includes('deleted') || sgStatus.includes('disconnect')) {
+        availability = 'unavailable';
+      } else if (sgStatus.includes('away') || sgStatus.includes('busy') || sgStatus.includes('out') || sgStatus.includes('PTO') || sgStatus.includes('leave')) {
+        availability = 'partial';
+      } else if (sgStatus.includes('active') || sgStatus.includes('enable') || sgStatus.includes('work')) {
+        availability = 'full';
+      }
+    }
 
     const safeName =
       (typeof payload.name === 'string' && payload.name.trim()) ||
@@ -853,7 +868,8 @@ export function upsertWorkerFromSg(payload: SgUserPayload) {
       // Preserve existing task lists — only initialise on first create
       activeTaskIds: (existing?.activeTaskIds as string[]) || [],
       assignedTaskIds: (existing?.assignedTaskIds as string[]) || [],
-      availability: (existing?.availability as string | undefined) || 'full',
+      // Sync availability from SG when provided; preserve existing on re-sync, default to 'full' on first create
+      availability: availability ?? ((existing?.availability as string | undefined) || 'full'),
     };
 
     const updated = { ...(existing || {}), ...updates };

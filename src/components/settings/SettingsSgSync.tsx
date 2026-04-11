@@ -279,14 +279,23 @@ function EntitySyncCard({ label, description, entity, statusType, adminPassword,
 }
 
 // ---------------------------------------------------------------------------
-// ResyncByIdRow — re-sync a single ticket by its SG ID
+// ResyncByIdRow — re-sync a single entity (project, worker, or ticket) by SG ID
 // ---------------------------------------------------------------------------
+
+type EntityType = 'project-by-id' | 'worker-by-id' | 'ticket-by-id';
 
 function ResyncByIdRow({ adminPassword }: { adminPassword: string }) {
   const fetchState = useStore((s) => s.fetchState);
+  const [entityType, setEntityType] = useState<EntityType>('ticket-by-id');
   const [sgId, setSgId] = useState('');
   const [phase, setPhase] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [result, setResult] = useState('');
+
+  const entityLabels: Record<EntityType, string> = {
+    'project-by-id': 'Project',
+    'worker-by-id': 'Worker',
+    'ticket-by-id': 'Ticket',
+  };
 
   const run = async () => {
     const id = parseInt(sgId.trim(), 10);
@@ -297,12 +306,12 @@ function ResyncByIdRow({ adminPassword }: { adminPassword: string }) {
       const res = await fetch('/api/sg/trigger-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPassword, entity: 'ticket-by-id', sgId: id }),
+        body: JSON.stringify({ adminPassword, entity: entityType, sgId: id }),
       });
       const data = await res.json();
       if (data.success !== false) {
         await fetchState();
-        setResult(data.output || `Imported ticket ${id}`);
+        setResult(data.output || `Imported ${entityLabels[entityType]} ${id}`);
         setPhase('done');
       } else {
         setResult(data.error || data.output || 'Failed');
@@ -317,6 +326,19 @@ function ResyncByIdRow({ adminPassword }: { adminPassword: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       <span style={{ fontSize: 11, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Re-import by SG ID:</span>
+      <select
+        value={entityType}
+        onChange={e => { setEntityType(e.target.value as EntityType); setPhase('idle'); setResult(''); }}
+        style={{
+          padding: '4px 8px', borderRadius: 5,
+          border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-secondary)',
+          color: 'var(--color-text-primary)', fontSize: 12,
+        }}
+      >
+        <option value="project-by-id">Project</option>
+        <option value="worker-by-id">Worker</option>
+        <option value="ticket-by-id">Ticket</option>
+      </select>
       <input
         type="number"
         placeholder="e.g. 206"

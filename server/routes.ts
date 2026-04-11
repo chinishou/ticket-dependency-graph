@@ -513,7 +513,7 @@ router.post('/sg/list-statuses', (req, res) => {
 router.post('/sg/trigger-sync', (req, res) => {
   const { adminPassword, entity, statuses, sgId } = req.body as {
     adminPassword?: string;
-    entity: 'projects' | 'departments' | 'workers' | 'tickets' | 'ticket-by-id' | 'bootstrap';
+    entity: 'projects' | 'departments' | 'workers' | 'tickets' | 'ticket-by-id' | 'project-by-id' | 'worker-by-id' | 'bootstrap';
     statuses?: string[];
     sgId?: number;
   };
@@ -521,16 +521,21 @@ router.post('/sg/trigger-sync', (req, res) => {
     res.status(403).json({ error: 'Admin password required' });
     return;
   }
-  if (entity === 'ticket-by-id') {
+  if (entity === 'ticket-by-id' || entity === 'project-by-id' || entity === 'worker-by-id') {
     if (!sgId) {
-      res.status(400).json({ error: 'sgId required for ticket-by-id' });
+      res.status(400).json({ error: 'sgId required' });
       return;
     }
+    const subcmdMap: Record<string, string> = {
+      'ticket-by-id': 'sync-ticket-by-id',
+      'project-by-id': 'sync-project-by-id',
+      'worker-by-id': 'sync-worker-by-id',
+    };
     const projectRoot = path.resolve(import.meta.dirname, '..');
     const pythonCmd = process.env.PYTHON_CMD || 'python';
     execFile(
       pythonCmd,
-      ['sg_bootstrap.py', 'sync-ticket-by-id', `--id=${sgId}`],
+      ['sg_bootstrap.py', subcmdMap[entity], `--id=${sgId}`],
       { cwd: projectRoot, timeout: 30_000, env: { ...process.env } },
       (err, stdout, stderr) => {
         const output = [stdout, stderr].filter(Boolean).join('\n').trim();
@@ -540,14 +545,14 @@ router.post('/sg/trigger-sync', (req, res) => {
     );
     return;
   }
-  const subcmdMap: Record<string, string[]> = {
+  const batchSubcmdMap: Record<string, string[]> = {
     projects:    ['sync-projects',    ...(statuses?.length ? [`--statuses=${statuses.join(',')}`] : [])],
     departments: ['sync-departments'],
     workers:     ['sync-workers'],
     tickets:     ['sync-tickets',     ...(statuses?.length ? [`--statuses=${statuses.join(',')}`] : [])],
     bootstrap:   ['bootstrap'],
   };
-  const args = subcmdMap[entity];
+  const args = batchSubcmdMap[entity];
   if (!args) {
     res.status(400).json({ error: `Unknown entity: ${entity}` });
     return;

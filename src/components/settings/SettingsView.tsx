@@ -677,6 +677,7 @@ function RoleManagement() {
   const adminPassword = useStore((s) => s.adminPassword);
   const [users, setUsers] = useState<{ name: string; role: string; created_at: string }[]>([]);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     fetch('/api/users').then((r) => r.json()).then(setUsers).catch(() => {});
@@ -698,55 +699,75 @@ function RoleManagement() {
     setUpdating(null);
   };
 
+  const filteredUsers = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()));
+
   return (
     <div style={{ ...sectionStyle, marginTop: 20 }}>
       <h2 style={headingStyle}>Role Management</h2>
       <p style={{ fontSize: 12, color: 'var(--color-text-muted)', margin: '0 0 12px' }}>
         Assign roles to users. Coordinators can edit tasks and priorities, workers can only view and update their own task status. Admin access is granted via password upgrade.
       </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <input
+          type="text"
+          placeholder="Search users..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{
+            flex: 1, padding: '6px 10px', borderRadius: 6,
+            border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-secondary)',
+            color: 'var(--color-text-primary)', fontSize: 12,
+          }}
+        />
+        <span style={{ fontSize: 11, color: 'var(--color-text-muted)', flexShrink: 0 }}>
+          {filteredUsers.length} / {users.length}
+        </span>
+      </div>
       <div style={{ borderRadius: 8, border: '1px solid var(--color-border)', overflow: 'hidden' }}>
-        {users.map((u, i) => {
-          return (
-            <div
-              key={u.name}
-              style={{
-                padding: '10px 14px',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                borderBottom: i < users.length - 1 ? '1px solid var(--color-bg-tertiary)' : 'none',
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 13, color: 'var(--color-text-primary)', fontWeight: u.name === userName ? 600 : 400 }}>
-                  {u.name}{u.name === userName ? ' (you)' : ''}
+        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+          {filteredUsers.map((u, i) => {
+            return (
+              <div
+                key={u.name}
+                style={{
+                  padding: '10px 14px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  borderBottom: i < filteredUsers.length - 1 ? '1px solid var(--color-bg-tertiary)' : 'none',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 13, color: 'var(--color-text-primary)', fontWeight: u.name === userName ? 600 : 400 }}>
+                    {u.name}{u.name === userName ? ' (you)' : ''}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 3 }}>
+                  {ROLE_OPTIONS.map((role) => (
+                    <button
+                      key={role}
+                      onClick={() => handleRoleChange(u.name, role)}
+                      disabled={updating === u.name}
+                      style={{
+                        fontSize: 10, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
+                        border: u.role === role ? `1px solid ${ROLE_COLORS[role]}` : '1px solid var(--color-border)',
+                        backgroundColor: u.role === role ? `${ROLE_COLORS[role]}20` : 'transparent',
+                        color: u.role === role ? ROLE_COLORS[role] : 'var(--color-text-muted)',
+                        fontWeight: u.role === role ? 600 : 400,
+                        opacity: updating === u.name ? 0.5 : 1,
+                      }}
+                    >
+                      {role}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 3 }}>
-                {ROLE_OPTIONS.map((role) => (
-                  <button
-                    key={role}
-                    onClick={() => handleRoleChange(u.name, role)}
-                    disabled={updating === u.name}
-                    style={{
-                      fontSize: 10, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
-                      border: u.role === role ? `1px solid ${ROLE_COLORS[role]}` : '1px solid var(--color-border)',
-                      backgroundColor: u.role === role ? `${ROLE_COLORS[role]}20` : 'transparent',
-                      color: u.role === role ? ROLE_COLORS[role] : 'var(--color-text-muted)',
-                      fontWeight: u.role === role ? 600 : 400,
-                      opacity: updating === u.name ? 0.5 : 1,
-                    }}
-                  >
-                    {role}
-                  </button>
-                ))}
-              </div>
+            );
+          })}
+          {filteredUsers.length === 0 && (
+            <div style={{ padding: 16, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 12 }}>
+              {users.length === 0 ? 'No users registered' : 'No matching users'}
             </div>
-          );
-        })}
-        {users.length === 0 && (
-          <div style={{ padding: 16, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 12 }}>
-            No users registered
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

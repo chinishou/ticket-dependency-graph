@@ -72,7 +72,7 @@ def fetch_departments():
 
 def fetch_workers():
     print("Fetching SG HumanUsers...")
-    fields = ["id", "name", "permission_group", "department"]
+    fields = ["id", "name", "permission_group", "department", "sg_status"]
     users = sg.find("HumanUser", filters=[], fields=fields)
     result = []
     for u in users:
@@ -83,9 +83,44 @@ def fetch_workers():
             "permissionGroup": u.get("permission_group"),
             "departmentId": dept["id"] if dept else None,
             "departmentName": dept["name"] if dept else None,
+            "sgStatus": u.get("sg_status"),
         })
     print(f"  Found {len(result)} users")
     return result
+
+def fetch_project_by_id(project_id):
+    """Fetch a single project by SG ID and return the normalized payload dict."""
+    print(f"Fetching SG Project {project_id}...")
+    fields = ["id", "code", "name", "description", "start_date", "due_date", "sg_duration_days"]
+    project = sg.find_one("Project", [["id", "is", project_id]], fields)
+    if not project:
+        raise RuntimeError(f"Project {project_id} not found in SG")
+    name = project.get("code") or project.get("name") or f"Project {project_id}"
+    return {
+        "id": project["id"],
+        "name": name,
+        "description": project.get("description") or "",
+        "startDate": project.get("start_date"),
+        "endDate": project.get("due_date"),
+        "durationDays": project.get("sg_duration_days"),
+    }
+
+def fetch_worker_by_id(worker_id):
+    """Fetch a single human user by SG ID and return the normalized payload dict."""
+    print(f"Fetching SG HumanUser {worker_id}...")
+    fields = ["id", "name", "permission_group", "department", "sg_status"]
+    user = sg.find_one("HumanUser", [["id", "is", worker_id]], fields)
+    if not user:
+        raise RuntimeError(f"HumanUser {worker_id} not found in SG")
+    dept = user.get("department")
+    return {
+        "id": user["id"],
+        "name": user.get("name") or f"User {worker_id}",
+        "permissionGroup": user.get("permission_group"),
+        "departmentId": dept["id"] if dept else None,
+        "departmentName": dept["name"] if dept else None,
+        "sgStatus": user.get("sg_status"),
+    }
 
 def fetch_ticket_by_id(ticket_id):
     """Fetch a single ticket by SG ID and return the normalized payload dict."""
@@ -213,6 +248,18 @@ def cmd_sync_tickets(args):
         print(f"  Tickets synced: {synced}/{total}")
     print(f"Synced {total} tickets")
 
+def cmd_sync_project_by_id(args):
+    project_id = int(args.id)
+    payload = fetch_project_by_id(project_id)
+    post("/api/sg/bootstrap", {"adminPassword": ADMIN_PASSWORD, "projects": [payload], "tickets": []})
+    print(f"Synced project {project_id}: {payload['name']}")
+
+def cmd_sync_worker_by_id(args):
+    worker_id = int(args.id)
+    payload = fetch_worker_by_id(worker_id)
+    post("/api/sg/bootstrap", {"adminPassword": ADMIN_PASSWORD, "workers": [payload], "tickets": []})
+    print(f"Synced worker {worker_id}: {payload['name']}")
+
 def cmd_sync_ticket_by_id(args):
     ticket_id = int(args.id)
     payload = fetch_ticket_by_id(ticket_id)
@@ -271,6 +318,12 @@ if __name__ == "__main__":
     p_tick = sub.add_parser("sync-tickets", help="Sync tickets (optionally filter by status)")
     p_tick.add_argument("--statuses", help="Comma-separated sg_status_list values to include")
 
+    p_proj_one = sub.add_parser("sync-project-by-id", help="Re-sync a single project by SG ID")
+    p_proj_one.add_argument("--id", required=True, help="SG Project ID to sync")
+
+    p_worker_one = sub.add_parser("sync-worker-by-id", help="Re-sync a single worker by SG ID")
+    p_worker_one.add_argument("--id", required=True, help="SG HumanUser ID to sync")
+
     p_one = sub.add_parser("sync-ticket-by-id", help="Re-sync a single ticket by SG ID")
     p_one.add_argument("--id", required=True, help="SG Ticket ID to sync")
 
@@ -284,6 +337,8 @@ if __name__ == "__main__":
         "sync-departments": cmd_sync_departments,
         "sync-workers": cmd_sync_workers,
         "sync-tickets": cmd_sync_tickets,
+        "sync-project-by-id": cmd_sync_project_by_id,
+        "sync-worker-by-id": cmd_sync_worker_by_id,
         "sync-ticket-by-id": cmd_sync_ticket_by_id,
         "bootstrap": cmd_bootstrap,
         None: cmd_bootstrap,  # default: full bootstrap for backward compat
