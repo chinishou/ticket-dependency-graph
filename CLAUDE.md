@@ -42,8 +42,8 @@ All entities have bidirectional dependency links (e.g., `task.dependsOnTaskIds` 
 - **Zustand store** (`src/store/useStore.ts`) — single source of truth. Entity maps (`Map<string, T>`), optimistic mutations that fire-and-forget to server, polling for remote changes.
 - **6 top-level views** switched via ViewSwitcher in `App.tsx` (role-filtered):
   - **F: My Tasks** — Worker-focused view: active tasks, up-next queue, unlocks. Worker landing page.
-  - **A: Tech Tree** — React Flow + dagre auto-layout (`rankdir: 'TB'`). Custom `TaskNode`/`MilestoneNode`. `nodesDraggable: false` enforced. Sub-views: goal-map (department-level) and tech-tree (goal-level). Coordinator landing page (goal-map sub-view).
-  - **B: Dashboard** — Drill-down: Company → Project/Department cards with progress stats. Inline P1/P2/P3 priority buttons (coordinator+ only). Admin landing page.
+  - **A: Tech Tree** — React Flow + dagre auto-layout (`rankdir: 'TB'`). Custom `TaskNode`/`MilestoneNode`. `nodesDraggable: false` enforced. Sub-views: goal-map (department-level) and tech-tree (goal-level). Coordinator landing page (goal-map sub-view). `GoalMapView` has a `ParentSelector` pill bar above it to switch between departments (purple) and active projects (blue).
+  - **B: Dashboard** — Drill-down: Company → Project/Department cards with progress stats. Sub-views: `company`, `project`, `department`, `cross`. The `cross` sub-view (`CrossView`) renders a Department × Project matrix table showing task counts, progress, and goal pills per cell. Inline P1/P2/P3 priority buttons (coordinator+ only). Admin landing page.
   - **C: Timeline** — Custom Gantt with dependency-based date scheduling, month axis, today marker.
   - **D: Workers** — Worker list by department, detail with active tasks, unlocks, priority-sorted queue. Admin/coordinator only.
   - **E: Settings** — Priority weight sliders, calibration wizard, lead list, role management. Admin only.
@@ -55,9 +55,9 @@ Five-dimension weighted scoring (0-100):
 
 | Factor | Source | Scale |
 |--------|--------|-------|
-| **Project** (default 25%) | `Project.strategicPriority` (P1/P2/P3) | P1=100, P2=67, P3=33 |
-| **Department** (default 20%) | `Department.priority` (P1/P2/P3) | P1=100, P2=67, P3=33 |
-| **Goal** (default 15%) | `Goal.departmentPriority` (1-3) | 1=100, 2=67, 3=33 |
+| **Project** (default 30%) | `Project.strategicPriority` (P1/P2/P3); uses max across `task.relatedProjectIds` | P1=100, P2=67, P3=33 |
+| **Department** (default 10%) | `Department.priority` (P1/P2/P3); uses max across `task.relatedDepartmentIds` | P1=100, P2=67, P3=33 |
+| **Goal** (default 20%) | `Goal.departmentPriority` (1-3) | 1=100, 2=67, 3=33 |
 | **Creator** (default 10%) | `Worker.isLead` | lead=100, other=50 |
 | **Graph** (default 30%) | Backward propagation: downstream count, critical path, status | 0-100 computed |
 
@@ -141,6 +141,11 @@ Event-driven notification system with per-user persistence and toast alerts.
 - **Mock data fallback** — store initializes from `src/data/mockData.ts` if server is unavailable.
 - **Cross-view task selection** — `selectedTaskId` in Zustand store enables selecting a task from Workers, Timeline, or My Tasks views and viewing details in `FloatingTaskDetailPanel`. "Go to Tech Tree" button navigates to the task's goal tech tree with the task highlighted.
 - **Auto worker-ID linking** — `setUserName()` and `fetchState()` automatically match the logged-in user's name to a `Worker` entity and set `userWorkerId` in store + localStorage.
+- **EntrySource breadcrumb** (`App.tsx`) — `EntrySource` discriminated union `{ from: 'goal-map' } | { from: 'project-dashboard'; projectId } | { from: 'dept-dashboard'; deptId } | { from: 'cross-view' }` tracks how the user navigated into the tech-tree view. `handleBreadcrumbBack()` uses it to navigate back to the correct origin.
+- **Zustand stable function refs** — Store methods (e.g. `getAllUnplacedTasks`, `getProjectForGoal`) have stable references that never change. Using them directly as `useMemo` deps means the memo **never recomputes**. Instead, subscribe to the data slices those methods read (e.g. `tasksMap`) and derive inline.
+- **GoalSelector grouping** (`src/components/layout/GoalSelector.tsx`) — Groups goals into `<optgroup>` elements: `Dept: name` for department-parented goals (sorted by `departmentPriority` then name), `Project: name` for project-parented goals. Ungrouped goals fall into `<optgroup label="Other">`.
+- **`getGoalsForDepartment` / `getGoalsForProject`** (store) — Include both directly-parented goals and cross-ref goals (goals whose `departmentId`/`projectId` cross-ref points to the dept/project).
+- **`getProjectForGoal`** (store) — Checks `goal.parentType === 'project'` first, then `goal.projectId` cross-ref, then falls back to a full project scan. Needed because cross-ref goals have a dept parent but a project association.
 
 ## Entity Types
 
@@ -148,9 +153,13 @@ Defined in `src/types/index.ts`: Company, Department, Project, Goal, Task, Miles
 
 Key enums: `TaskStatus` (locked/available/in_progress/paused/completed/blocked), `StrategicPriority` (P1/P2/P3), `WorkerAvailability` (full/partial/unavailable).
 
+**`GoalStatus`** (`src/types/index.ts`) — computed from child tasks: `completed | in_progress | blocked | available | empty`. Three helpers: `computeGoalStatus(goal, tasksMap)`, `getGoalStatusColor(status)`, `getGoalStatusGlow(status)`. Used in `GoalNode` for border color and status badge.
+
 Key fields:
 - `Department.priority: StrategicPriority` — department-level priority (P1/P2/P3), separate from goal priority.
 - `Goal.departmentPriority: number` — goal-level priority within its department (1-3).
+- `Goal.departmentId?: string` / `Goal.projectId?: string` — cross-reference fields. A dept-parented goal may have `projectId` set to mark it as cross-associated with a project, and vice versa. **Guard:** `addGoal` backfills `departmentId = parentId` for dept-parented goals, so cross-ref badge rendering must check `goal.projectId !== goal.parentId` (and same for `departmentId`) before treating it as a secondary association.
+- `Task.relatedProjectIds?: string[]` / `Task.relatedDepartmentIds?: string[]` — multi-association: a task may contribute to several projects/departments beyond its primary goal's parent. Used by priority calc (max across all related) and `CrossView` matrix.
 - `Worker.isLead?: boolean` — determines creator factor in priority calc. Managed via Settings lead list.
 - `Worker.activeTaskIds: string[]` — multiple concurrent active tasks.
 - `Worker.assignedTaskIds: string[]` — full queue including non-active.
@@ -158,7 +167,7 @@ Key fields:
 
 **ShotGrid-synced fields** (set by SG sync only, never written by the app):
 - `Task.sgTicketId`, `Task.sgProjectId`, `Task.sgStatus`, `Task.sgEstimate`, `Task.sgTimeLogged`, `Task.sgAssignedTo`
-- `Task.unplaced?: boolean` — task has no goal placement yet; visible in `UnplacedTasksPanel` in the Tech Tree view.
+- `Task.unplaced?: boolean` — task has no goal placement yet. Visible in `GlobalUnplacedPanel` (global, opened from GoalMapView toolbar "Unplaced (N)" button, groups by `sgProjectName`) and `UnplacedTasksPanel` (per-goal, in TechTreeView).
 - `Task.archived`, `Task.archivedAt`, `Task.syncSource` — same pattern on `Worker` and `Project`.
 - `Worker.sgUserId`, `Worker.permissionGroup`, `Worker.role` — role derived from SG permission group.
 - `Project.sgProjectId`, `Project.startDate`, `Project.endDate`, `Project.durationDays`.

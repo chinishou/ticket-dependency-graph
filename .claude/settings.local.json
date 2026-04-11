@@ -1,4 +1,5 @@
 {
+  "hasCompletedOnboarding": true,
   "permissions": {
     "allow": [
       "Bash(npm create:*)",
