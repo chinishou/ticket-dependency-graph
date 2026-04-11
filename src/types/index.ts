@@ -144,6 +144,8 @@ export interface Goal {
   milestoneIds: string[];
   dependsOnGoalIds: string[];
   unlocksGoalIds: string[];
+  departmentId?: string;
+  projectId?: string;
 }
 
 export interface SgAssignee {
@@ -190,6 +192,8 @@ export interface Task {
   archivedAt?: string;
   syncSource?: 'sg';
   unplaced?: boolean;
+  relatedProjectIds?: string[];
+  relatedDepartmentIds?: string[];
 }
 
 export interface Milestone {

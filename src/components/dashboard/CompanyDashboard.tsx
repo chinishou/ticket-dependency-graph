@@ -7,11 +7,13 @@ import { usePermission } from '../../hooks/usePermission';
 interface CompanyDashboardProps {
   onSelectProject: (projectId: string) => void;
   onSelectDepartment: (deptId: string) => void;
+  onSelectCrossView: () => void;
 }
 
 export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   onSelectProject,
   onSelectDepartment,
+  onSelectCrossView,
 }) => {
   const company = useStore((s) => s.company);
   const projects = useStore((s) => s.projects);
@@ -244,7 +246,19 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
 
         {/* Projects Section */}
         <div style={{ marginTop: 32 }}>
-          <div style={sectionTitleStyle}>PROJECTS</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <div style={sectionTitleStyle}>PROJECTS</div>
+            <button
+              onClick={onSelectCrossView}
+              style={{
+                padding: '4px 10px', borderRadius: 4, border: '1px solid var(--color-accent)',
+                backgroundColor: 'rgba(167, 139, 250, 0.1)', color: 'var(--color-accent)',
+                fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Cross-View Matrix
+            </button>
+          </div>
           <div style={projectGridStyle}>
             {sortedProjects.map(
               ({

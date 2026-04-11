@@ -10,6 +10,7 @@ import { GoalMapView } from './components/tech-tree/GoalMapView';
 import { CompanyDashboard } from './components/dashboard/CompanyDashboard';
 import { ProjectDashboard } from './components/dashboard/ProjectDashboard';
 import { DeptDashboard } from './components/dashboard/DeptDashboard';
+import { CrossView } from './components/dashboard/CrossView';
 import { TimelineView } from './components/timeline/TimelineView';
 import { WorkerView } from './components/worker/WorkerView';
 import { SettingsView } from './components/settings/SettingsView';
@@ -21,12 +22,13 @@ import { NotificationCenter } from './components/shared/NotificationCenter';
 import { NotificationToast } from './components/shared/NotificationToast';
 
 type SubViewA = 'goal-map' | 'tech-tree';
-type SubViewB = 'company' | 'project' | 'department';
+type SubViewB = 'company' | 'project' | 'department' | 'cross';
 
 type EntrySource =
   | { from: 'goal-map' }
   | { from: 'project-dashboard'; projectId: string }
-  | { from: 'dept-dashboard'; deptId: string };
+  | { from: 'dept-dashboard'; deptId: string }
+  | { from: 'cross-view' };
 
 function App() {
   const fetchState = useStore((s) => s.fetchState);
@@ -159,6 +161,10 @@ function App() {
     setSubViewB('company');
   }, []);
 
+  const handleSelectCrossView = useCallback(() => {
+    setSubViewB('cross');
+  }, []);
+
   const handleDashboardGoalSelect = useCallback((goalId: string) => {
     clearSelection();
     setSelectedGoalId(goalId);
@@ -167,6 +173,7 @@ function App() {
     // Record where we came from so breadcrumb can navigate back
     if (subViewB === 'project') setEntrySource({ from: 'project-dashboard', projectId: selectedProjectId });
     else if (subViewB === 'department') setEntrySource({ from: 'dept-dashboard', deptId: selectedDeptId });
+    else if (subViewB === 'cross') setEntrySource({ from: 'cross-view' });
     else setEntrySource({ from: 'goal-map' });
   }, [clearSelection, subViewB, selectedProjectId, selectedDeptId]);
 
@@ -184,6 +191,9 @@ function App() {
     } else if (entrySource.from === 'dept-dashboard') {
       setSelectedDeptId(entrySource.deptId);
       setSubViewB('department');
+      setTopView('B');
+    } else if (entrySource.from === 'cross-view') {
+      setSubViewB('cross');
       setTopView('B');
     } else {
       handleGoToGoalMap();
@@ -220,6 +230,12 @@ function App() {
     if (topView === 'B') {
       if (subViewB === 'company') {
         return [{ label: company.name }, { label: 'Dashboard' }];
+      }
+      if (subViewB === 'cross') {
+        return [
+          { label: company.name, href: '#', onClick: handleBackToCompany },
+          { label: 'Cross-View' },
+        ];
       }
       if (subViewB === 'project') {
         const proj = projectsMap.get(selectedProjectId);
@@ -330,7 +346,13 @@ function App() {
           <CompanyDashboard
             onSelectProject={handleSelectProject}
             onSelectDepartment={handleSelectDepartment}
+            onSelectCrossView={handleSelectCrossView}
           />
+        </div>
+      )}
+      {topView === 'B' && subViewB === 'cross' && (
+        <div key="cross" className="view-enter" style={{ width: '100%', height: '100%' }}>
+          <CrossView onSelectGoal={handleDashboardGoalSelect} onBack={handleBackToCompany} />
         </div>
       )}
       {topView === 'B' && subViewB === 'project' && selectedProjectId && (

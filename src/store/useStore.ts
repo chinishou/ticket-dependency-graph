@@ -103,6 +103,7 @@ interface AppState {
   getGoalsForProject: (projectId: string) => Goal[];
   getAllTasks: () => Task[];
   getUnplacedTasks: (goalId: string) => Task[];
+  getAllUnplacedTasks: () => Task[];
   getProjectForGoal: (goalId: string) => Project | null;
   getRelatedNodeIds: (nodeId: string) => Set<string>;
 }
@@ -961,13 +962,27 @@ export const useStore = create<AppState>((set, get) => ({
   getGoalsForDepartment: (deptId) => {
     const dept = get().departments.get(deptId);
     if (!dept) return [];
-    return dept.goalIds.map((id) => get().goals.get(id)).filter(Boolean) as Goal[];
+    const fromParent = new Set(dept.goalIds);
+    const result: Goal[] = [];
+    for (const goal of get().goals.values()) {
+      if (fromParent.has(goal.id) || goal.departmentId === deptId) {
+        result.push(goal);
+      }
+    }
+    return result;
   },
 
   getGoalsForProject: (projectId) => {
     const project = get().projects.get(projectId);
     if (!project) return [];
-    return project.goalIds.map((id) => get().goals.get(id)).filter(Boolean) as Goal[];
+    const fromParent = new Set(project.goalIds);
+    const result: Goal[] = [];
+    for (const goal of get().goals.values()) {
+      if (fromParent.has(goal.id) || goal.projectId === projectId) {
+        result.push(goal);
+      }
+    }
+    return result;
   },
 
   getAllTasks: () => {
@@ -982,11 +997,23 @@ export const useStore = create<AppState>((set, get) => ({
     );
   },
 
+  getAllUnplacedTasks: () => {
+    return Array.from(get().tasks.values()).filter(
+      (t) => !t.archived && (!t.goalId || t.goalId === ''),
+    );
+  },
+
   getProjectForGoal: (goalId: string) => {
     const goal = get().goals.get(goalId);
     if (!goal) return null;
+    // Primary parent is a project
     if (goal.parentType === 'project') return get().projects.get(goal.parentId) ?? null;
-    // Also check if any project explicitly lists this goal (goal parented to dept but in a project's goalIds)
+    // Cross-reference field (goal parented to dept but serves a project)
+    if (goal.projectId) {
+      const p = get().projects.get(goal.projectId);
+      if (p) return p;
+    }
+    // Fallback: scan project.goalIds (covers legacy data without cross-ref field)
     for (const project of get().projects.values()) {
       if (project.goalIds.includes(goalId)) return project;
     }

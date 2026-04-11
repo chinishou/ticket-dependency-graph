@@ -14,12 +14,14 @@ export function FloatingTaskDetailPanel({ onGoToTechTree, onClose }: FloatingTas
   const milestonesMap = useStore((s) => s.milestones);
   const workersMap = useStore((s) => s.workers);
   const departmentsMap = useStore((s) => s.departments);
+  const projectsMap = useStore((s) => s.projects);
   const goalsMap = useStore((s) => s.goals);
+  const calibrationWeights = useStore((s) => s.calibrationWeights);
   const getProjectForGoal = useStore((s) => s.getProjectForGoal);
 
   const priorities = useMemo(
-    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap }),
-    [tasksMap, milestonesMap, goalsMap, departmentsMap],
+    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap, projects: projectsMap, weights: calibrationWeights }),
+    [tasksMap, milestonesMap, goalsMap, departmentsMap, projectsMap, calibrationWeights],
   );
 
   if (!selectedTaskId) return null;

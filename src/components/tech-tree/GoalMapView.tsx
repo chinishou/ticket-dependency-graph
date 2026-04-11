@@ -19,11 +19,12 @@ import { useStore } from '../../store/useStore';
 import { usePermission } from '../../hooks/usePermission';
 import type { Goal } from '../../types';
 import { GoalNode, type GoalNodeData } from './GoalNode';
+import { GlobalUnplacedPanel } from './GlobalUnplacedPanel';
 
 const nodeTypes = { goalNode: GoalNode };
 
 const GOAL_NODE_WIDTH = 220;
-const GOAL_NODE_HEIGHT = 100;
+const GOAL_NODE_HEIGHT = 120;
 
 interface GoalMapViewProps {
   parentType: 'department' | 'project';
@@ -34,6 +35,8 @@ interface GoalMapViewProps {
 function buildGoalGraphLayout(
   goals: Goal[],
   tasksMap: Map<string, { status: string; archived?: boolean }>,
+  departmentsMap: Map<string, { id: string; name: string }>,
+  projectsMap: Map<string, { id: string; name: string }>,
 ): { nodes: Node<GoalNodeData>[]; edges: Edge[] } {
   const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
   g.setGraph({ rankdir: 'TB', ranksep: 80, nodesep: 40, marginx: 40, marginy: 40 });
@@ -64,7 +67,22 @@ function buildGoalGraphLayout(
       type: 'goalNode' as const,
       position: { x: pos.x - GOAL_NODE_WIDTH / 2, y: pos.y - GOAL_NODE_HEIGHT / 2 },
       measured: { width: GOAL_NODE_WIDTH, height: GOAL_NODE_HEIGHT },
-      data: { type: 'goal' as const, goal, completedTasks, totalTasks, tasksMap },
+      data: {
+        type: 'goal' as const,
+        goal,
+        completedTasks,
+        totalTasks,
+        tasksMap,
+        // Only show cross-ref badge when it points to a DIFFERENT entity than the primary parent
+        // (addGoal backfills departmentId/projectId = parentId for primary-parented goals,
+        //  so without this guard every goal in a dept view shows a redundant dept badge)
+        projectName: goal.projectId && goal.projectId !== goal.parentId
+          ? (projectsMap.get(goal.projectId)?.name ?? goal.projectId)
+          : undefined,
+        departmentName: goal.departmentId && goal.departmentId !== goal.parentId
+          ? (departmentsMap.get(goal.departmentId)?.name ?? goal.departmentId)
+          : undefined,
+      },
     };
   });
 
@@ -85,6 +103,8 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
   const getGoalsForProject = useStore((s) => s.getGoalsForProject);
   const goalsMap = useStore((s) => s.goals);
   const tasksMap = useStore((s) => s.tasks);
+  const departmentsMap = useStore((s) => s.departments);
+  const projectsMap = useStore((s) => s.projects);
   const updateGoal = useStore((s) => s.updateGoal);
   const addGoal = useStore((s) => s.addGoal);
   const removeGoal = useStore((s) => s.removeGoal);
@@ -96,6 +116,8 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
   const [editMode, setEditMode] = useState(false);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const lastClickRef = useRef<{ id: string; time: number } | null>(null);
+
+  const [newGoalSecondaryParent, setNewGoalSecondaryParent] = useState<string>('');
 
   // Auto-register presence
   const presenceScope = `goal-map:${parentId}`;
@@ -120,6 +142,14 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
   const [showCreateGoal, setShowCreateGoal] = useState(false);
   const [newGoalName, setNewGoalName] = useState('');
   const createGoalInputRef = useRef<HTMLInputElement>(null);
+  const [showGlobalUnplaced, setShowGlobalUnplaced] = useState(false);
+
+  // Compute unplacedCount directly from tasksMap so it stays reactive to task changes.
+  // (getAllUnplacedTasks has a stable reference and cannot serve as a useMemo dep.)
+  const unplacedCount = useMemo(
+    () => Array.from(tasksMap.values()).filter((t) => !t.archived && (!t.goalId || t.goalId === '')).length,
+    [tasksMap],
+  );
 
   useEffect(() => {
     if (showCreateGoal) createGoalInputRef.current?.focus();
@@ -127,6 +157,7 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
 
   const handleCreateGoal = useCallback(() => {
     if (!newGoalName.trim()) return;
+    const secondaryParent = newGoalSecondaryParent || undefined;
     const goal: Goal = {
       id: `goal-${Date.now()}`,
       name: newGoalName.trim(),
@@ -139,11 +170,15 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
       milestoneIds: [],
       dependsOnGoalIds: [],
       unlocksGoalIds: [],
+      ...(parentType === 'department'
+        ? { departmentId: parentId, projectId: secondaryParent }
+        : { projectId: parentId, departmentId: secondaryParent }),
     };
     addGoal(goal);
     setNewGoalName('');
+    setNewGoalSecondaryParent('');
     setShowCreateGoal(false);
-  }, [newGoalName, userName, parentType, parentId, addGoal]);
+  }, [newGoalName, userName, parentType, parentId, newGoalSecondaryParent, addGoal]);
 
   const parentGoals = useMemo(() => {
     return parentType === 'department'
@@ -152,8 +187,13 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
   }, [parentType, parentId, getGoalsForDepartment, getGoalsForProject, goalsMap]);
 
   const { nodes: layoutNodes, edges: layoutEdges } = useMemo(() => {
-    return buildGoalGraphLayout(parentGoals, tasksMap as Map<string, { status: string; archived?: boolean }>);
-  }, [parentGoals, tasksMap]);
+    return buildGoalGraphLayout(
+      parentGoals,
+      tasksMap as Map<string, { status: string; archived?: boolean }>,
+      departmentsMap as Map<string, { id: string; name: string }>,
+      projectsMap as Map<string, { id: string; name: string }>,
+    );
+  }, [parentGoals, tasksMap, departmentsMap, projectsMap]);
 
   const [editNodes, setEditNodes] = useState<Node<GoalNodeData>[]>([]);
   const [editEdges, setEditEdges] = useState<Edge[]>([]);
@@ -341,6 +381,16 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
             Remove Goal
           </button>
         )}
+        <button
+          onClick={() => setShowGlobalUnplaced(!showGlobalUnplaced)}
+          style={{
+            ...toolbarButtonStyle,
+            backgroundColor: showGlobalUnplaced ? '#a78bfa' : 'var(--color-bg-secondary)',
+            color: showGlobalUnplaced ? 'var(--color-bg-primary)' : 'var(--color-text-primary)',
+          }}
+        >
+          Unplaced {unplacedCount > 0 && `(${unplacedCount})`}
+        </button>
       </div>
 
       {/* Create goal form */}
@@ -364,9 +414,46 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
               color: 'var(--color-text-primary)', fontSize: 12, outline: 'none', marginBottom: 8,
             }}
           />
+          {parentType === 'department' && (
+            <select
+              value={newGoalSecondaryParent}
+              onChange={(e) => setNewGoalSecondaryParent(e.target.value)}
+              style={{
+                width: '100%', padding: '6px 8px', borderRadius: 5,
+                border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-tertiary)',
+                color: 'var(--color-text-primary)', fontSize: 12, outline: 'none', marginBottom: 8,
+              }}
+            >
+              <option value="">+ Serves Project (optional)</option>
+              {Array.from(projectsMap.values())
+                .filter((p) => p.status === 'active')
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+            </select>
+          )}
+          {parentType === 'project' && (
+            <select
+              value={newGoalSecondaryParent}
+              onChange={(e) => setNewGoalSecondaryParent(e.target.value)}
+              style={{
+                width: '100%', padding: '6px 8px', borderRadius: 5,
+                border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-tertiary)',
+                color: 'var(--color-text-primary)', fontSize: 12, outline: 'none', marginBottom: 8,
+              }}
+            >
+              <option value="">+ Executing Dept (optional)</option>
+              {Array.from(departmentsMap.values())
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+            </select>
+          )}
           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
             <button
-              onClick={() => { setShowCreateGoal(false); setNewGoalName(''); }}
+              onClick={() => { setShowCreateGoal(false); setNewGoalName(''); setNewGoalSecondaryParent(''); }}
               style={{ ...toolbarButtonStyle, fontSize: 11 }}
             >
               Cancel
@@ -436,6 +523,10 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
             Use the <strong>+ Goal</strong> button above to create the first goal for this {parentType}.
           </div>
         </div>
+      )}
+
+      {showGlobalUnplaced && (
+        <GlobalUnplacedPanel onClose={() => setShowGlobalUnplaced(false)} />
       )}
     </div>
   );

@@ -184,12 +184,29 @@ export function TimelineView({ onSelectGoal }: TimelineViewProps) {
   const setSelectedTask = useStore((s) => s.setSelectedTask);
 
   const [groupBy, setGroupBy] = useState<GroupBy>('goal');
+  const [filterProject, setFilterProject] = useState<string>('');
+  const [filterDept, setFilterDept] = useState<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const [hoveredTask, setHoveredTask] = useState<string | null>(null);
 
   const allTasks = useMemo(
-    () => Array.from(tasksMap.values()).filter((t) => !t.unplaced && !t.archived),
-    [tasksMap],
+    () => {
+      let tasks = Array.from(tasksMap.values()).filter((t) => !t.unplaced && !t.archived);
+      if (filterProject || filterDept) {
+        tasks = tasks.filter((t) => {
+          const projectIds = (t as { relatedProjectIds?: string[] }).relatedProjectIds ?? [];
+          const deptIds = (t as { relatedDepartmentIds?: string[] }).relatedDepartmentIds ?? [];
+          const goal = goalsMap.get(t.goalId);
+          const goalProjectId = goal?.projectId;
+          const goalDeptId = goal?.departmentId;
+          const matchesProject = !filterProject || projectIds.includes(filterProject) || goalProjectId === filterProject;
+          const matchesDept = !filterDept || deptIds.includes(filterDept) || goalDeptId === filterDept;
+          return matchesProject && matchesDept;
+        });
+      }
+      return tasks;
+    },
+    [tasksMap, filterProject, filterDept, goalsMap],
   );
   const allMilestones = useMemo(() => Array.from(milestonesMap.values()), [milestonesMap]);
 
@@ -351,6 +368,41 @@ export function TimelineView({ onSelectGoal }: TimelineViewProps) {
         }}>
           Today
         </button>
+        <div style={{ width: 1, height: 20, backgroundColor: 'var(--color-border)' }} />
+        <select
+          value={filterProject}
+          onChange={(e) => setFilterProject(e.target.value)}
+          style={{
+            padding: '4px 8px', borderRadius: 4, fontSize: 11,
+            border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-secondary)',
+            color: 'var(--color-text-secondary)', cursor: 'pointer',
+          }}
+        >
+          <option value="">All Projects</option>
+          {Array.from(projectsMap.values())
+            .filter((p) => p.status === 'active')
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select
+          value={filterDept}
+          onChange={(e) => setFilterDept(e.target.value)}
+          style={{
+            padding: '4px 8px', borderRadius: 4, fontSize: 11,
+            border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-secondary)',
+            color: 'var(--color-text-secondary)', cursor: 'pointer',
+          }}
+        >
+          <option value="">All Departments</option>
+          {Array.from(departmentsMap.values())
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+        {(filterProject || filterDept) && (
+          <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
+            ({allTasks.length} tasks)
+          </span>
+        )}
       </div>
 
       {/* Main area: left panel + scrollable timeline */}

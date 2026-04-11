@@ -15,6 +15,7 @@ export function WorkerView({ onSelectGoal, onSelectTask }: WorkerViewProps) {
   const goalsMap = useStore((s) => s.goals);
   const milestonesMap = useStore((s) => s.milestones);
   const departmentsMap = useStore((s) => s.departments);
+  const projectsMap = useStore((s) => s.projects);
   const storeSetSelectedTask = useStore((s) => s.setSelectedTask);
 
   const handleSelectTask = onSelectTask ?? storeSetSelectedTask;
@@ -26,8 +27,8 @@ export function WorkerView({ onSelectGoal, onSelectTask }: WorkerViewProps) {
   const departments = useMemo(() => Array.from(departmentsMap.values()), [departmentsMap]);
 
   const priorities = useMemo(
-    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap }),
-    [tasksMap, milestonesMap, goalsMap, departmentsMap],
+    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap, projects: projectsMap }),
+    [tasksMap, milestonesMap, goalsMap, departmentsMap, projectsMap],
   );
 
   const filteredWorkers = useMemo(() => {

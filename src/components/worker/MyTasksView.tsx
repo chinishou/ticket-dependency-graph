@@ -16,13 +16,18 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
   const tasksMap = useStore((s) => s.tasks);
   const goalsMap = useStore((s) => s.goals);
   const departmentsMap = useStore((s) => s.departments);
+  const projectsMap = useStore((s) => s.projects);
   const milestonesMap = useStore((s) => s.milestones);
   const updateTask = useStore((s) => s.updateTask);
   const getProjectForGoal = useStore((s) => s.getProjectForGoal);
+  const calibrationWeights = useStore((s) => s.calibrationWeights);
+
+  const [filterProject, setFilterProject] = useState<string>('');
+  const [filterDept, setFilterDept] = useState<string>('');
 
   const priorities = useMemo(
-    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap }),
-    [tasksMap, milestonesMap, goalsMap, departmentsMap],
+    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap, projects: projectsMap, weights: calibrationWeights }),
+    [tasksMap, milestonesMap, goalsMap, departmentsMap, projectsMap, calibrationWeights],
   );
 
   const worker = userWorkerId ? workersMap.get(userWorkerId) : null;
@@ -66,6 +71,23 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
     updateTask(taskId, updates);
   };
 
+  const taskMatchesFilter = (task: Task): boolean => {
+    if (!filterProject && !filterDept) return true;
+    const projectIds = task.relatedProjectIds ?? [];
+    const deptIds = task.relatedDepartmentIds ?? [];
+    const goal = goalsMap.get(task.goalId);
+    const goalProjectId = goal?.projectId;
+    const goalDeptId = goal?.departmentId;
+    const matchesProject = !filterProject || projectIds.includes(filterProject) || goalProjectId === filterProject;
+    const matchesDept = !filterDept || deptIds.includes(filterDept) || goalDeptId === filterDept;
+    return matchesProject && matchesDept;
+  };
+
+  const filteredActiveTasks = activeTasks.filter(taskMatchesFilter);
+  const filteredUpNextTasks = upNextTasks.filter(taskMatchesFilter);
+  const filteredUnlockedTasks = unlockedTasks.filter(taskMatchesFilter);
+  const filteredQueueTasks = queueTasks.filter(taskMatchesFilter);
+
   return (
     <div style={{ height: '100%', overflowY: 'auto' }}>
       <div style={{ maxWidth: 800, margin: '0 auto', padding: 24 }}>
@@ -101,12 +123,67 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
           </div>
         </div>
 
+        {/* Filter bar */}
+        {(filterProject || filterDept) && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 24, alignItems: 'center', padding: '8px 12px', borderRadius: 8, backgroundColor: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}>
+            <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>Filtering by:</span>
+            {filterProject && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 8px', borderRadius: 12, backgroundColor: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
+                📁 {projectsMap.get(filterProject)?.name ?? filterProject}
+                <button onClick={() => setFilterProject('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 10, padding: 0 }}>✕</button>
+              </span>
+            )}
+            {filterDept && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 8px', borderRadius: 12, backgroundColor: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
+                🏢 {departmentsMap.get(filterDept)?.name ?? filterDept}
+                <button onClick={() => setFilterDept('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 10, padding: 0 }}>✕</button>
+              </span>
+            )}
+            <span style={{ fontSize: 10, color: 'var(--color-text-muted)', marginLeft: 'auto' }}>
+              {filteredActiveTasks.length} of {activeTasks.length} active tasks
+            </span>
+          </div>
+        )}
+
+        {/* Project/Dept filter dropdowns */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+          <select
+            value={filterProject}
+            onChange={(e) => setFilterProject(e.target.value)}
+            style={{
+              padding: '6px 10px', borderRadius: 6, fontSize: 12,
+              border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-secondary)',
+              color: 'var(--color-text-secondary)', cursor: 'pointer',
+            }}
+          >
+            <option value="">All Projects</option>
+            {Array.from(projectsMap.values())
+              .filter((p) => p.status === 'active')
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select
+            value={filterDept}
+            onChange={(e) => setFilterDept(e.target.value)}
+            style={{
+              padding: '6px 10px', borderRadius: 6, fontSize: 12,
+              border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-secondary)',
+              color: 'var(--color-text-secondary)', cursor: 'pointer',
+            }}
+          >
+            <option value="">All Departments</option>
+            {Array.from(departmentsMap.values())
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </div>
+
         {/* Active Tasks */}
         <section style={{ marginBottom: 32 }}>
-          <SectionTitle>Active Tasks ({activeTasks.length})</SectionTitle>
-          {activeTasks.length > 0 ? (
+          <SectionTitle>Active Tasks ({filteredActiveTasks.length})</SectionTitle>
+          {filteredActiveTasks.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {activeTasks.map((task) => {
+              {filteredActiveTasks.map((task) => {
                 const goal = goalsMap.get(task.goalId);
                 const project = getProjectForGoal(task.goalId);
                 const pri = priorities.get(task.id);
@@ -182,11 +259,11 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
         </section>
 
         {/* Up Next */}
-        {upNextTasks.length > 0 && (
+        {filteredUpNextTasks.length > 0 && (
           <section style={{ marginBottom: 32 }}>
             <SectionTitle>Up Next</SectionTitle>
             <div style={{ borderRadius: 8, border: '1px solid var(--color-border)', overflow: 'hidden' }}>
-              {upNextTasks.map((task, i) => {
+              {filteredUpNextTasks.map((task, i) => {
                 const goal = goalsMap.get(task.goalId);
                 const project = getProjectForGoal(task.goalId);
                 const pri = priorities.get(task.id);
@@ -198,7 +275,7 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
                     style={{
                       padding: '12px 14px',
                       display: 'flex', alignItems: 'center', gap: 10,
-                      borderBottom: i < upNextTasks.length - 1 ? '1px solid var(--color-bg-tertiary)' : 'none',
+                      borderBottom: i < filteredUpNextTasks.length - 1 ? '1px solid var(--color-bg-tertiary)' : 'none',
                       cursor: onSelectTask ? 'pointer' : 'default',
                     }}
                   >
@@ -260,11 +337,11 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
         )}
 
         {/* Unlocks */}
-        {unlockedTasks.length > 0 && (
+        {filteredUnlockedTasks.length > 0 && (
           <section style={{ marginBottom: 32 }}>
             <SectionTitle>Your Active Work Unlocks</SectionTitle>
             <div style={{ borderRadius: 8, border: '1px solid var(--color-border)', overflow: 'hidden' }}>
-              {unlockedTasks.map((t, i) => {
+              {filteredUnlockedTasks.map((t, i) => {
                 const pri = priorities.get(t.id);
                 const goal = goalsMap.get(t.goalId);
                 return (
@@ -274,7 +351,7 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
                     style={{
                       padding: '10px 14px', cursor: onSelectTask || onSelectGoal ? 'pointer' : 'default',
                       display: 'flex', alignItems: 'center', gap: 10,
-                      borderBottom: i < unlockedTasks.length - 1 ? '1px solid var(--color-bg-tertiary)' : 'none',
+                      borderBottom: i < filteredUnlockedTasks.length - 1 ? '1px solid var(--color-bg-tertiary)' : 'none',
                       transition: 'background-color 0.15s',
                     }}
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--color-bg-secondary)'}
@@ -313,7 +390,7 @@ export function MyTasksView({ onSelectGoal, onSelectTask }: MyTasksViewProps) {
 
         {/* Full Queue (collapsible) */}
         <FullQueue
-          tasks={queueTasks}
+          tasks={filteredQueueTasks}
           goalsMap={goalsMap}
           priorities={priorities}
           onSelectTask={onSelectTask}

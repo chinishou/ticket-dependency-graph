@@ -15,6 +15,8 @@ export interface GoalNodeData {
   totalTasks: number;
   tasksMap: Map<string, { status: string; archived?: boolean }>;
   dimmed?: boolean;
+  projectName?: string;
+  departmentName?: string;
   [key: string]: unknown;
 }
 
@@ -27,7 +29,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 function GoalNodeComponent({ data, selected }: NodeProps & { data: GoalNodeData }) {
-  const { goal, completedTasks, totalTasks, tasksMap, dimmed } = data;
+  const { goal, completedTasks, totalTasks, tasksMap, dimmed, projectName, departmentName } = data;
   const pct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
   const opacity = dimmed ? 0.15 : 1;
 
@@ -117,6 +119,28 @@ function GoalNodeComponent({ data, selected }: NodeProps & { data: GoalNodeData 
           {goal.owner && (
             <span style={{ fontSize: 10, color: 'var(--color-text-muted)', marginLeft: 'auto' }}>
               {goal.owner}
+            </span>
+          )}
+        </div>
+
+        {/* Cross-ref badges */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5, minHeight: 16 }}>
+          {projectName && (
+            <span style={{
+              fontSize: 9, padding: '1px 5px', borderRadius: 3,
+              background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)',
+              border: '1px solid var(--color-border)', flexShrink: 0,
+            }}>
+              📁 {projectName}
+            </span>
+          )}
+          {departmentName && (
+            <span style={{
+              fontSize: 9, padding: '1px 5px', borderRadius: 3,
+              background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)',
+              border: '1px solid var(--color-border)', flexShrink: 0,
+            }}>
+              🏢 {departmentName}
             </span>
           )}
         </div>

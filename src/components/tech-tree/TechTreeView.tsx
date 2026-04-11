@@ -42,6 +42,7 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
   const goalsMap = useStore((s) => s.goals);
   const workersMap = useStore((s) => s.workers);
   const departmentsMap = useStore((s) => s.departments);
+  const projectsMap = useStore((s) => s.projects);
   const setSelectedTask = useStore((s) => s.setSelectedTask);
   const setSelectedMilestone = useStore((s) => s.setSelectedMilestone);
   const selectedTaskId = useStore((s) => s.selectedTaskId);
@@ -131,7 +132,7 @@ export function TechTreeView({ goalId }: TechTreeViewProps) {
   }, [focusedNodeId, getRelatedNodeIds]);
 
   const priorityScores = useMemo(() => {
-    const priorities = computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap });
+    const priorities = computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap, projects: projectsMap });
     const scores = new Map<string, number>();
     for (const [id, p] of priorities) scores.set(id, p.score);
     return scores;

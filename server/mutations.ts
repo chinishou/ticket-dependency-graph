@@ -326,11 +326,20 @@ function getProject(id: string): Record<string, unknown> | null {
 export function addGoal(goal: Record<string, unknown>) {
   return runTransaction(() => {
     const goalId = goal.id as string;
-    upsertEntity('goals', goalId, goal);
+
+    let finalGoal = { ...goal };
+    if (goal.parentType === 'department' && !goal.departmentId) {
+      finalGoal = { ...finalGoal, departmentId: goal.parentId as string };
+    }
+    if (goal.parentType === 'project' && !goal.projectId) {
+      finalGoal = { ...finalGoal, projectId: goal.parentId as string };
+    }
+
+    upsertEntity('goals', goalId, finalGoal);
 
     // Add goal to parent's goalIds
-    const parentType = goal.parentType as string;
-    const parentId = goal.parentId as string;
+    const parentType = finalGoal.parentType as string;
+    const parentId = finalGoal.parentId as string;
     if (parentType === 'department') {
       const dept = getDepartment(parentId);
       if (dept) {
@@ -349,7 +358,7 @@ export function addGoal(goal: Record<string, unknown>) {
       }
     }
 
-    return goal;
+    return finalGoal;
   });
 }
 
@@ -358,9 +367,10 @@ export function removeGoal(goalId: string) {
     const goal = getGoal(goalId);
     if (!goal) return { deleted: false };
 
-    // Remove from parent's goalIds
     const parentType = goal.parentType as string;
     const parentId = goal.parentId as string;
+
+    // Remove from parent's goalIds
     if (parentType === 'department') {
       const dept = getDepartment(parentId);
       if (dept) {
@@ -375,6 +385,26 @@ export function removeGoal(goalId: string) {
         upsertEntity('projects', parentId, {
           ...proj,
           goalIds: (proj.goalIds as string[]).filter((id) => id !== goalId),
+        });
+      }
+    }
+
+    // Also remove from cross-referenced project/dept goalIds
+    if (goal.projectId && goal.projectId !== parentId) {
+      const proj = getProject(goal.projectId);
+      if (proj) {
+        upsertEntity('projects', goal.projectId, {
+          ...proj,
+          goalIds: (proj.goalIds as string[]).filter((id) => id !== goalId),
+        });
+      }
+    }
+    if (goal.departmentId && goal.departmentId !== parentId) {
+      const dept = getDepartment(goal.departmentId);
+      if (dept) {
+        upsertEntity('departments', goal.departmentId, {
+          ...dept,
+          goalIds: (dept.goalIds as string[]).filter((id) => id !== goalId),
         });
       }
     }
@@ -607,6 +637,15 @@ export function upsertTaskFromSg(payload: SgTicketPayload, goalId = '') {
         (existing?.contributingDepartmentId as string | undefined) ?? '',
       parallelizationFactor:
         (existing?.parallelizationFactor as number | undefined) ?? 0.5,
+      // Multi-association: auto-add SG project, preserve any user-added ones
+      relatedProjectIds: (() => {
+        const existingProjects = ((existing as Record<string, unknown>)?.relatedProjectIds as string[] | undefined) ?? [];
+        const sgProject = payload.project ? `sg-${payload.project.id}` : null;
+        const base = existingProjects.filter(id => id !== sgProject);
+        return sgProject ? [...base, sgProject] : base;
+      })(),
+      relatedDepartmentIds:
+        ((existing as Record<string, unknown>)?.relatedDepartmentIds as string[] | undefined) ?? [],
     };
 
     const updated = { ...(existing || {}), ...updates };

@@ -25,6 +25,107 @@ function CollapsibleDescription({ text }: { text: string }) {
   );
 }
 
+interface MultiSelectListProps {
+  title: string;
+  selectedIds: string[];
+  allOptions: { id: string; name: string }[];
+  lockedIds?: string[];
+  onRemove: (id: string) => void;
+  onAdd: (id: string) => void;
+  readOnly?: boolean;
+}
+
+function MultiSelectList({ title, selectedIds, allOptions, lockedIds = [], onRemove, onAdd, readOnly }: MultiSelectListProps) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [search, setSearch] = useState('');
+  const lockedSet = new Set(lockedIds);
+  const existingSet = new Set(selectedIds);
+  const filtered = allOptions.filter(
+    (o) => !existingSet.has(o.id) && o.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={sectionTitleStyle}>{title} ({selectedIds.length})</div>
+        {!readOnly && (
+          <button
+            onClick={() => { setShowAdd(!showAdd); setSearch(''); }}
+            style={{ ...smallButtonStyle, fontSize: 14, lineHeight: 1, padding: '2px 6px' }}
+          >
+            {showAdd ? '−' : '+'}
+          </button>
+        )}
+      </div>
+
+      {showAdd && (
+        <div style={{ marginTop: 6, marginBottom: 6 }}>
+          <input
+            type="text"
+            placeholder={`Search ${title.toLowerCase()}...`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={searchInputStyle}
+            autoFocus
+          />
+          <div style={{ maxHeight: 120, overflowY: 'auto', marginTop: 4 }}>
+            {filtered.length === 0 && (
+              <div style={{ fontSize: 11, color: 'var(--color-text-muted)', padding: 4 }}>No matching items</div>
+            )}
+            {filtered.map((opt) => (
+              <div
+                key={opt.id}
+                onClick={() => { onAdd(opt.id); setShowAdd(false); setSearch(''); }}
+                style={{ ...linkItemStyle, fontSize: 12 }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-bg-tertiary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <span>{opt.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
+        {selectedIds.map((id) => {
+          const opt = allOptions.find((o) => o.id === id);
+          const isLocked = lockedSet.has(id);
+          return (
+            <span
+              key={id}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                fontSize: 11, padding: '3px 8px', borderRadius: 20,
+                backgroundColor: 'var(--color-bg-tertiary)',
+                border: `1px solid ${isLocked ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              {isLocked && <span style={{ fontSize: 9 }}>🔒</span>}
+              {opt?.name ?? id}
+              {!readOnly && !isLocked && (
+                <button
+                  onClick={() => onRemove(id)}
+                  style={{
+                    background: 'none', border: 'none', color: 'var(--color-text-muted)',
+                    cursor: 'pointer', fontSize: 10, padding: '0 0 0 2px', lineHeight: 1,
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+            </span>
+          );
+        })}
+        {selectedIds.length === 0 && (
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>None assigned</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface EditableDepListProps {
   title: string;
   items: { id: string; name: string; status?: string; isMilestone?: boolean }[];
@@ -127,6 +228,7 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
   const tasksMap = useStore((s) => s.tasks);
   const milestonesMap = useStore((s) => s.milestones);
   const workersMap = useStore((s) => s.workers);
+  const projectsMap = useStore((s) => s.projects);
   const departmentsMap = useStore((s) => s.departments);
   const setSelectedTask = useStore((s) => s.setSelectedTask);
   const setSelectedMilestone = useStore((s) => s.setSelectedMilestone);
@@ -143,13 +245,14 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
   const getProjectForGoal = useStore((s) => s.getProjectForGoal);
 
   const goalsMap = useStore((s) => s.goals);
+  const calibrationWeights = useStore((s) => s.calibrationWeights);
 
   const goalTasks = getTasksForGoal(goalId);
   const goalMilestones = getMilestonesForGoal(goalId);
 
   const priorities = useMemo(
-    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap }),
-    [tasksMap, milestonesMap, goalsMap, departmentsMap],
+    () => computeTaskPriorities({ tasks: tasksMap, milestones: milestonesMap, goals: goalsMap, departments: departmentsMap, projects: projectsMap, weights: calibrationWeights }),
+    [tasksMap, milestonesMap, goalsMap, departmentsMap, calibrationWeights],
   );
 
   // All tasks and milestones available for linking
@@ -394,11 +497,11 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
               </div>
             )}
             <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4, display: 'flex', gap: 8 }}>
-              <span style={{ color: '#ef4444' }}>Proj:{Math.round(pri.projectFactor * 0.25)}</span>
-              <span style={{ color: '#f59e0b' }}>Dept:{Math.round(pri.deptFactor * 0.20)}</span>
-              <span style={{ color: '#22c55e' }}>Goal:{Math.round(pri.goalFactor * 0.15)}</span>
-              <span style={{ color: '#8b5cf6' }}>Cr:{Math.round(pri.creatorFactor * 0.10)}</span>
-              <span style={{ color: '#38bdf8' }}>GF:{Math.round(pri.graphFactor * 0.30)}</span>
+              <span style={{ color: '#ef4444' }}>Proj:{Math.round(pri.projectFactor * (calibrationWeights?.project ?? 0.30))}</span>
+              <span style={{ color: '#f59e0b' }}>Dept:{Math.round(pri.deptFactor * (calibrationWeights?.dept ?? 0.10))}</span>
+              <span style={{ color: '#22c55e' }}>Goal:{Math.round(pri.goalFactor * (calibrationWeights?.goal ?? 0.20))}</span>
+              <span style={{ color: '#8b5cf6' }}>Cr:{Math.round(pri.creatorFactor * (calibrationWeights?.creator ?? 0.10))}</span>
+              <span style={{ color: '#38bdf8' }}>GF:{Math.round(pri.graphFactor * (calibrationWeights?.graph ?? 0.30))}</span>
             </div>
 
             {/* Override — direct number input (editor roles only) */}
@@ -517,6 +620,54 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
         onItemClick={handleItemClick}
         readOnly={!canEditTasks}
       />
+
+      {/* Related Projects */}
+      {(() => {
+        const relatedProjectIds = task.relatedProjectIds ?? [];
+        const sgLockedProjectId = task.sgProjectId ? `sg-${task.sgProjectId}` : null;
+        const allProjectOptions = Array.from(projectsMap.values()).map((p) => ({ id: p.id, name: p.name }));
+        return (
+          <MultiSelectList
+            title="Related Projects"
+            selectedIds={relatedProjectIds}
+            allOptions={allProjectOptions}
+            lockedIds={sgLockedProjectId ? [sgLockedProjectId] : []}
+            onRemove={(id) => {
+              const newIds = relatedProjectIds.filter((i) => i !== id);
+              updateTask(selectedTaskId, { relatedProjectIds: newIds.length > 0 ? newIds : undefined });
+            }}
+            onAdd={(id) => {
+              if (!relatedProjectIds.includes(id)) {
+                updateTask(selectedTaskId, { relatedProjectIds: [...relatedProjectIds, id] });
+              }
+            }}
+            readOnly={!canEditTasks}
+          />
+        );
+      })()}
+
+      {/* Related Departments */}
+      {(() => {
+        const relatedDeptIds = task.relatedDepartmentIds ?? [];
+        const allDeptOptions = Array.from(departmentsMap.values()).map((d) => ({ id: d.id, name: d.name }));
+        return (
+          <MultiSelectList
+            title="Related Departments"
+            selectedIds={relatedDeptIds}
+            allOptions={allDeptOptions}
+            onRemove={(id) => {
+              const newIds = relatedDeptIds.filter((i) => i !== id);
+              updateTask(selectedTaskId, { relatedDepartmentIds: newIds.length > 0 ? newIds : undefined });
+            }}
+            onAdd={(id) => {
+              if (!relatedDeptIds.includes(id)) {
+                updateTask(selectedTaskId, { relatedDepartmentIds: [...relatedDeptIds, id] });
+              }
+            }}
+            readOnly={!canEditTasks}
+          />
+        );
+      })()}
 
       {/* Remove from goal (editor roles only) */}
       {canEditTasks && (

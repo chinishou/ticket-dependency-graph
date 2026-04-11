@@ -1,4 +1,4 @@
-import type { Task, Milestone, Goal, Department, StrategicPriority, CalibrationWeights } from '../types';
+import type { Task, Milestone, Goal, Department, Project, StrategicPriority, CalibrationWeights } from '../types';
 
 /**
  * Five-dimension weighted priority scoring.
@@ -14,9 +14,9 @@ import type { Task, Milestone, Goal, Department, StrategicPriority, CalibrationW
  */
 
 export const DEFAULT_WEIGHTS: CalibrationWeights = {
-  project: 0.25,
-  dept: 0.20,
-  goal: 0.15,
+  project: 0.30,
+  dept: 0.10,
+  goal: 0.20,
   creator: 0.10,
   graph: 0.30,
 };
@@ -26,7 +26,8 @@ interface PriorityInput {
   milestones: Map<string, Milestone>;
   goals: Map<string, Goal>;
   departments?: Map<string, Department>;
-  projectPriorityMap?: Map<string, StrategicPriority>; // goalId → project strategic priority
+  projects?: Map<string, Project>; // projectId → Project for multi-association lookup
+  projectPriorityMap?: Map<string, StrategicPriority>; // goalId → project strategic priority (legacy fallback)
   creatorIsLeadMap?: Map<string, boolean>;              // taskId → whether creator is lead
   weights?: CalibrationWeights;
 }
@@ -178,6 +179,7 @@ export function computeTaskPriorities({
   milestones,
   goals,
   departments,
+  projects,
   projectPriorityMap,
   creatorIsLeadMap,
   weights,
@@ -192,14 +194,37 @@ export function computeTaskPriorities({
 
     const goal = goals.get(task.goalId);
 
-    // Project factor: look up project priority for this task's goal
-    const projPriority = projectPriorityMap?.get(task.goalId) ?? 'P2';
-    const projectFactor = computeProjectFactor(projPriority);
+    // Project factor: use max priority across relatedProjectIds (multi-association)
+    // Fall back to goal-based lookup if no related projects
+    const projectIds = task.relatedProjectIds ?? [];
+    let projectFactor: number;
+    if (projectIds.length > 0 && projects) {
+      const priorities = projectIds
+        .map(id => projects.get(id))
+        .filter((p): p is Project => !!p)
+        .map(p => p.strategicPriority ?? 'P2');
+      const bestRank = Math.min(...priorities.map(strategicPriorityToRank));
+      projectFactor = ((4 - bestRank) / 3) * 100;
+    } else {
+      const projPriority = projectPriorityMap?.get(task.goalId) ?? 'P2';
+      projectFactor = computeProjectFactor(projPriority);
+    }
 
-    // Department factor: use department's priority (not goal's departmentPriority)
-    const dept = departments?.get(task.contributingDepartmentId);
-    const deptPriority = dept?.priority ?? 'P2';
-    const deptFactor = computeDeptFactor(deptPriority);
+    // Department factor: use max priority across relatedDepartmentIds (multi-association)
+    const deptIds = task.relatedDepartmentIds ?? [];
+    let deptFactor: number;
+    if (deptIds.length > 0 && departments) {
+      const priorities = deptIds
+        .map(id => departments.get(id))
+        .filter((d): d is Department => !!d)
+        .map(d => d.priority ?? 'P2');
+      const bestRank = Math.min(...priorities.map(strategicPriorityToRank));
+      deptFactor = ((4 - bestRank) / 3) * 100;
+    } else {
+      const dept = departments?.get(task.contributingDepartmentId);
+      const deptPriority = dept?.priority ?? 'P2';
+      deptFactor = computeDeptFactor(deptPriority);
+    }
 
     // Goal factor: from goal's departmentPriority (1-3)
     const goalPri = goal?.departmentPriority ?? 3;
