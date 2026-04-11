@@ -1,8 +1,10 @@
+import 'dotenv/config';
 import Database from 'better-sqlite3';
 import path from 'path';
 import {
   company, departments, projects, goals, tasks, milestones, workers,
 } from '../src/data/mockData';
+import { logger } from './utils/logger';
 
 const DB_PATH = path.join(import.meta.dirname, '..', 'data.db');
 
@@ -87,7 +89,7 @@ if (count.c === 0) {
     for (const w of workers) insert.run('workers', w.id, JSON.stringify(w));
   });
   seedAll();
-  console.log('Database seeded with mock data');
+  logger.info('Database seeded with mock data');
 }
 
 // --- Query helpers ---

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../../store/useStore';
 import { SettingsSgSync } from './SettingsSgSync';
+import { LogViewer } from './LogViewer';
 import {
   DEFAULT_WEIGHTS,
   deriveWeightsFromCalibration,
@@ -26,13 +27,14 @@ const headingStyle: React.CSSProperties = {
 
 // === Tab System ===
 
-type SettingsTab = 'priority' | 'roles' | 'sg';
+type SettingsTab = 'priority' | 'roles' | 'sg' | 'logs';
 
 function TabBar({ active, onChange }: { active: SettingsTab; onChange: (t: SettingsTab) => void }) {
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: 'priority', label: 'Priority' },
     { id: 'roles', label: 'Role Management' },
     { id: 'sg', label: 'SG Import' },
+    { id: 'logs', label: 'Logs' },
   ];
 
   return (
@@ -1258,6 +1260,8 @@ export function SettingsView() {
             {adminPassword && <SettingsSgSync adminPassword={adminPassword} />}
           </div>
         )}
+
+        {activeTab === 'logs' && <LogViewer />}
       </div>
 
       {/* Priority Wizard Modal */}

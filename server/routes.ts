@@ -17,6 +17,7 @@ import {
   replaceDepartmentsFromSg,
 } from './mutations';
 import type { SgDepartmentPayload } from './mutations';
+import { logger, logMutation, logSgSync, getLogs, clearLogs } from './utils/logger';
 
 export const router = Router();
 
@@ -162,8 +163,10 @@ router.post('/mutations/:type', (req, res) => {
     }
     // Return full state after mutation so client stays in sync
     const entities = getAllEntities();
+    logMutation(type, body.userName, body.entityId ?? body.goalId ?? body.taskId, true);
     res.json({ result, entities, lastModified: getLastModified() });
   } catch (err) {
+    logMutation(type, body.userName, body.entityId ?? body.goalId ?? body.taskId, false, err as Error);
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -331,8 +334,10 @@ router.post('/sg/sync/task', requireSgSecret, (req, res) => {
   try {
     const result = upsertTaskFromSg(payload, payload.goalId);
     const entities = getAllEntities();
+    logSgSync('task', payload.id, 'sync', true);
     res.json({ result, entities, lastModified: getLastModified() });
   } catch (err) {
+    logSgSync('task', payload.id, 'sync', false, err as Error);
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -346,8 +351,10 @@ router.post('/sg/archive/task', requireSgSecret, (req, res) => {
   try {
     const result = archiveTaskFromSg(sgTicketId);
     const entities = getAllEntities();
+    logSgSync('task', sgTicketId, 'archive', true);
     res.json({ result, entities, lastModified: getLastModified() });
   } catch (err) {
+    logSgSync('task', sgTicketId, 'archive', false, err as Error);
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -361,8 +368,10 @@ router.post('/sg/sync/worker', requireSgSecret, (req, res) => {
   try {
     const result = upsertWorkerFromSg(payload);
     const entities = getAllEntities();
+    logSgSync('worker', payload.id, 'sync', true);
     res.json({ result, entities, lastModified: getLastModified() });
   } catch (err) {
+    logSgSync('worker', payload.id, 'sync', false, err as Error);
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -376,8 +385,10 @@ router.post('/sg/archive/worker', requireSgSecret, (req, res) => {
   try {
     const result = archiveWorkerFromSg(sgUserId);
     const entities = getAllEntities();
+    logSgSync('worker', sgUserId, 'archive', true);
     res.json({ result, entities, lastModified: getLastModified() });
   } catch (err) {
+    logSgSync('worker', sgUserId, 'archive', false, err as Error);
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -391,8 +402,10 @@ router.post('/sg/sync/project', requireSgSecret, (req, res) => {
   try {
     const result = upsertProjectFromSg(payload);
     const entities = getAllEntities();
+    logSgSync('project', payload.id, 'sync', true);
     res.json({ result, entities, lastModified: getLastModified() });
   } catch (err) {
+    logSgSync('project', payload.id, 'sync', false, err as Error);
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -406,8 +419,10 @@ router.post('/sg/archive/project', requireSgSecret, (req, res) => {
   try {
     const result = archiveProjectFromSg(sgProjectId);
     const entities = getAllEntities();
+    logSgSync('project', sgProjectId, 'archive', true);
     res.json({ result, entities, lastModified: getLastModified() });
   } catch (err) {
+    logSgSync('project', sgProjectId, 'archive', false, err as Error);
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -627,6 +642,34 @@ router.post('/sg/clear-sg-data', (req, res) => {
   try {
     const result = db.prepare(`DELETE FROM entities WHERE JSON_EXTRACT(data,'$.syncSource')='sg'`).run();
     res.json({ deleted: result.changes, entities: getAllEntities(), lastModified: getLastModified() });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// --- Logs ---
+
+router.get('/logs', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+  const offset = parseInt(req.query.offset as string) || 0;
+  try {
+    const result = getLogs(limit, offset);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+router.post('/logs/clear', (req, res) => {
+  const { adminPassword } = req.body as { adminPassword?: string };
+  if (adminPassword !== ADMIN_PASSWORD) {
+    res.status(403).json({ error: 'Admin password required' });
+    return;
+  }
+  try {
+    clearLogs();
+    logger.info('Logs cleared by admin');
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
