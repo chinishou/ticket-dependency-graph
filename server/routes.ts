@@ -412,6 +412,30 @@ router.post('/sg/archive/project', requireSgSecret, (req, res) => {
   }
 });
 
+// Update task status in ShotGrid (tech-tree → SG sync)
+router.post('/sg/update-task-status', (req, res) => {
+  const { sgTicketId, status } = req.body as { sgTicketId?: number; status?: string };
+  if (!sgTicketId || !status) {
+    res.status(400).json({ error: 'sgTicketId and status are required' });
+    return;
+  }
+  const projectRoot = path.resolve(import.meta.dirname, '..');
+  const pythonCmd = process.env.PYTHON_CMD || 'python';
+  execFile(
+    pythonCmd,
+    ['sg_bootstrap.py', 'update-ticket-status', `--id=${sgTicketId}`, `--status=${status}`],
+    { cwd: projectRoot, timeout: 30_000, env: { ...process.env } },
+    (err, stdout, stderr) => {
+      const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+      if (err) {
+        res.status(500).json({ error: output || err.message });
+        return;
+      }
+      res.json({ success: true, output });
+    },
+  );
+});
+
 router.post('/sg/bootstrap', (req, res) => {
   const { adminPassword, siteName, projects, workers, tickets } = req.body as {
     adminPassword?: string;

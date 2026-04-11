@@ -266,6 +266,25 @@ def cmd_sync_ticket_by_id(args):
     post("/api/sg/bootstrap", {"adminPassword": ADMIN_PASSWORD, "tickets": [payload]})
     print(f"Synced ticket {ticket_id}: {payload['title']}")
 
+def update_ticket_status(ticket_id, status):
+    """Update a ticket's sg_status_list in ShotGrid."""
+    print(f"Updating ticket {ticket_id} status to '{status}'...")
+    try:
+        sg.update("Ticket", ticket_id, {"sg_status_list": status})
+        print(f"Successfully updated ticket {ticket_id} status to '{status}'")
+        return True
+    except Exception as e:
+        print(f"ERROR: Failed to update ticket {ticket_id}: {e}", file=sys.stderr)
+        return False
+
+def cmd_update_ticket_status(args):
+    ticket_id = int(args.id)
+    status = args.status
+    success = update_ticket_status(ticket_id, status)
+    if success:
+        print(f"Updated ticket {ticket_id} status to '{status}'")
+    sys.exit(0 if success else 1)
+
 def cmd_bootstrap(_args):
     print("=" * 50)
     print("SG Bootstrap — Full sync from Flow Production Tracking")
@@ -327,6 +346,10 @@ if __name__ == "__main__":
     p_one = sub.add_parser("sync-ticket-by-id", help="Re-sync a single ticket by SG ID")
     p_one.add_argument("--id", required=True, help="SG Ticket ID to sync")
 
+    p_status = sub.add_parser("update-ticket-status", help="Update a ticket's status in SG")
+    p_status.add_argument("--id", required=True, help="SG Ticket ID to update")
+    p_status.add_argument("--status", required=True, help="New sg_status_list value")
+
     sub.add_parser("bootstrap", help="Full bootstrap (all entities)")
 
     args = parser.parse_args()
@@ -340,6 +363,7 @@ if __name__ == "__main__":
         "sync-project-by-id": cmd_sync_project_by_id,
         "sync-worker-by-id": cmd_sync_worker_by_id,
         "sync-ticket-by-id": cmd_sync_ticket_by_id,
+        "update-ticket-status": cmd_update_ticket_status,
         "bootstrap": cmd_bootstrap,
         None: cmd_bootstrap,  # default: full bootstrap for backward compat
     }

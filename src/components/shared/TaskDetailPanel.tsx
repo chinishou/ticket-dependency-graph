@@ -397,7 +397,19 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
             <div style={{ ...statusDot, backgroundColor: statusColor }} />
             <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{getStatusLabel(task.status)}</span>
             {task.ticketId && (
-              <span style={{ fontSize: 10, color: 'var(--color-text-muted)', marginLeft: 6 }}>{task.ticketId}</span>
+              task.ticketUrl ? (
+                <a
+                  href={task.ticketUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: 10, color: 'var(--color-accent)', marginLeft: 6, textDecoration: 'none' }}
+                  title="Open in ShotGrid"
+                >
+                  🔗 SG #{task.ticketId}
+                </a>
+              ) : (
+                <span style={{ fontSize: 10, color: 'var(--color-text-muted)', marginLeft: 6 }}>#{task.ticketId}</span>
+              )
             )}
             {(task as { syncSource?: string }).syncSource === 'sg' && (
               <span style={{ fontSize: 9, backgroundColor: 'var(--color-accent)', color: 'var(--color-bg-primary)', padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>SG</span>

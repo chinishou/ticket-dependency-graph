@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Company, Department, Project, Goal, Task, Milestone, Worker, CalibrationWeights, UserRole } from '../types';
+import type { Company, Department, Project, Goal, Task, Milestone, Worker, CalibrationWeights, UserRole, TaskStatus } from '../types';
 import {
   notifyTaskAssigned,
   notifyTaskStatusChanged,
@@ -80,6 +80,10 @@ interface AppState {
   // SG Priority auto-sync: when enabled, calculated priority (0-100) maps to SG priority (5-1)
   sgPriorityAutoSync: boolean;
   setSgPriorityAutoSync: (enabled: boolean) => void;
+
+  // SG Status Sync
+  mapTaskStatusToSg: (status: TaskStatus) => string;
+  syncTaskStatusToSg: (task: Task) => void;
 
   // Mutations (still sync for local state, fire API in background)
   updateTask: (taskId: string, updates: Partial<Task>) => void;
@@ -504,6 +508,35 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  // --- SG Status Sync ---
+
+  // Map tech-tree TaskStatus to SG sg_status_list value
+  mapTaskStatusToSg: (status: TaskStatus): string => {
+    switch (status) {
+      case 'completed': return 'res';
+      case 'in_progress': return 'ip';
+      case 'available': return 'opn';
+      case 'blocked': return 'hold';
+      case 'paused': return 'wtg';
+      case 'locked': return 'opn';
+      default: return 'opn';
+    }
+  },
+
+  // Sync task status to SG if the task is SG-synced
+  syncTaskStatusToSg: (task: Task) => {
+    if ((task as { syncSource?: string }).syncSource !== 'sg' || !task.sgTicketId) return;
+    const sgStatus = useStore.getState().mapTaskStatusToSg(task.status);
+    // Use raw fetch to avoid going through serverMutation (which would create a loop)
+    fetch('/api/sg/update-task-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sgTicketId: task.sgTicketId, status: sgStatus }),
+    }).catch(() => {
+      // Silently fail - SG sync is best-effort and will be corrected on next SG event
+    });
+  },
+
   // --- Mutations: optimistic local update + async server sync ---
 
   updateTask: (taskId, updates) => {
@@ -579,6 +612,14 @@ export const useStore = create<AppState>((set, get) => ({
 
     set({ tasks: newTasks });
     serverMutation('updateTask', { entityId: taskId, updates }, set, get);
+
+    // Sync status to SG if this is an SG-synced task and status changed
+    if (updates.status && updates.status !== existing.status) {
+      const updatedTask = newTasks.get(taskId);
+      if (updatedTask) {
+        get().syncTaskStatusToSg(updatedTask);
+      }
+    }
   },
 
   updateMilestone: (milestoneId, updates) => {
