@@ -18,6 +18,22 @@ const CURRENT_LEVEL = LogLevel[process.env.LOG_LEVEL?.toUpperCase() as keyof typ
 const LOG_DIR = path.join(import.meta.dirname, '..', 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'app.log');
 
+// Poll summary tracking - logs daily summary instead of every /poll 304
+let poll304Count = 0;
+let lastSummaryDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+function checkAndLogDailySummary() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== lastSummaryDate) {
+    // New day - log yesterday's summary if there were any polls
+    if (poll304Count > 0) {
+      logger.info(`Poll summary: ${poll304Count} /poll 304 (no changes) requests in the last 24h`);
+      poll304Count = 0;
+    }
+    lastSummaryDate = today;
+  }
+}
+
 // Ensure log directory exists
 function ensureLogDir() {
   if (!fs.existsSync(LOG_DIR)) {
@@ -124,6 +140,13 @@ export function logRequest(method: string, path: string, statusCode: number, dur
     userName,
   };
 
+  // Skip logging /poll 304 (no changes) - track for daily summary instead
+  if (method === 'GET' && path === '/poll' && statusCode === 304) {
+    poll304Count++;
+    checkAndLogDailySummary();
+    return;
+  }
+
   if (statusCode >= 500) {
     logger.error(`HTTP ${method} ${path} ${statusCode} ${durationMs}ms`, undefined, context);
   } else if (statusCode >= 400) {
@@ -133,12 +156,12 @@ export function logRequest(method: string, path: string, statusCode: number, dur
   }
 }
 
-export function logMutation(type: string, userName: string | undefined, entityId: string | undefined, success: boolean, error?: Error) {
-  const context = { mutation: type, userName, entityId, success };
+export function logMutation(type: string, userName: string | undefined, entityId: string | undefined, success: boolean, error?: Error, humanMessage?: string) {
+  const context = { mutation: type, userName, entityId, success, humanMessage };
   if (error) {
     logger.error(`Mutation failed: ${type}`, error, context);
   } else {
-    logger.info(`Mutation: ${type}`, context);
+    logger.info(humanMessage || `Mutation: ${type}`, context);
   }
 }
 

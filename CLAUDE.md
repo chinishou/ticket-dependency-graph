@@ -97,7 +97,7 @@ Three roles: **Admin**, **Coordinator**, **Worker** (`src/types/index.ts: UserRo
 - **DB query ordering** — both `getAllEntities` and `getChangedEntitiesSince` in `server/db.ts` use `ORDER BY table_name, id`. This is load-bearing: `INSERT OR REPLACE` in SQLite reorders rows, so without `ORDER BY` the `Map.keys()` order is non-deterministic, which breaks fallback logic in `App.tsx` that uses `Array.from(departmentsMap.keys())[0]`.
 - **Presence system** — `presence` table with `(scope, user_name)` composite PK, 3-minute heartbeat timeout. Cleanup on sign-out captures `userName` in closure (store may already be null at cleanup time).
 - **Edit locks** — pessimistic at goal/tree scope, 5-minute auto-expiry.
-- **Polling** — clients call `GET /api/poll?since=<ts>` every 5s for changes.
+- **Polling** — clients call `GET /api/poll?since=<ts>` every 30s by default (configurable via `VITE_POLL_INTERVAL` env var in ms).
 - Vite proxies `/api` to the Express server in dev mode (configured in `vite.config.ts`).
 
 ### Notification System

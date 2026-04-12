@@ -18,6 +18,48 @@ import {
 } from './mutations';
 import type { SgDepartmentPayload } from './mutations';
 import { logger, logMutation, logSgSync, getLogs, clearLogs } from './utils/logger';
+import { getTask } from './db.js';
+import type { Task } from './types.js';
+
+// Build human-readable message from mutation type + body
+function buildHumanMessage(type: string, body: Record<string, unknown>): string {
+  const user = body.userName ? `${body.userName} ` : '';
+  const id = (body.entityId ?? body.goalId ?? body.taskId ?? '') as string;
+
+  switch (type) {
+    case 'updateTask': {
+      const updates = body.updates as Record<string, unknown>;
+      const taskName = id.startsWith('sg-') ? `ticket ${id.replace('sg-', '')}` : id;
+      if (updates.status) return `${user}set ${taskName} status → ${updates.status}`;
+      if (updates.priorityOverride) return `${user}overrode priority of ${taskName}`;
+      return `${user}updated ${taskName}`;
+    }
+    case 'updateMilestone':
+      return `${user}updated milestone ${id}`;
+    case 'updateGoal':
+      return `${user}updated goal ${id}`;
+    case 'addGoal':
+      return `${user}created goal`;
+    case 'removeGoal':
+      return `${user}removed goal ${body.goalId}`;
+    case 'addMilestone':
+      return `${user}created milestone`;
+    case 'addTaskToGoal':
+      return `${user}added task ${body.taskId} to goal ${body.goalId}`;
+    case 'removeTaskFromGoal':
+      return `${user}removed task ${body.taskId} from goal ${body.goalId}`;
+    case 'removeMilestoneFromGoal':
+      return `${user}removed milestone ${body.milestoneId} from goal ${body.goalId}`;
+    case 'updateDepartment':
+      return `${user}updated department ${id}`;
+    case 'updateProject':
+      return `${user}updated project ${id}`;
+    case 'updateWorker':
+      return `${user}updated worker ${id}`;
+    default:
+      return `${user}performed ${type}`;
+  }
+}
 
 export const router = Router();
 
@@ -163,10 +205,10 @@ router.post('/mutations/:type', (req, res) => {
     }
     // Return full state after mutation so client stays in sync
     const entities = getAllEntities();
-    logMutation(type, body.userName, body.entityId ?? body.goalId ?? body.taskId, true);
+    logMutation(type, body.userName, body.entityId ?? body.goalId ?? body.taskId, true, undefined, buildHumanMessage(type, body));
     res.json({ result, entities, lastModified: getLastModified() });
   } catch (err) {
-    logMutation(type, body.userName, body.entityId ?? body.goalId ?? body.taskId, false, err as Error);
+    logMutation(type, body.userName, body.entityId ?? body.goalId ?? body.taskId, false, err as Error, buildHumanMessage(type, body));
     res.status(500).json({ error: (err as Error).message });
   }
 });

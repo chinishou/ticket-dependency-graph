@@ -1,11 +1,27 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/useStore';
 
+interface LogContext {
+  mutation?: string;
+  userName?: string;
+  entityId?: string;
+  success?: boolean;
+  humanMessage?: string;
+  method?: string;
+  path?: string;
+  statusCode?: number;
+  durationMs?: number;
+  sgEntity?: string;
+  sgId?: string | number;
+  action?: string;
+  [key: string]: unknown;
+}
+
 interface LogEntry {
   timestamp: string;
   level: string;
   message: string;
-  context?: Record<string, unknown>;
+  context?: LogContext;
   error?: {
     message: string;
     stack?: string;
@@ -46,6 +62,7 @@ export function LogViewer() {
   const [loading, setLoading] = useState(false);
   const [offset, setOffset] = useState(0);
   const [filter, setFilter] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'readable' | 'compact'>('readable');
   const limit = 50;
 
   const fetchLogs = useCallback(async (off = 0) => {
@@ -66,8 +83,6 @@ export function LogViewer() {
 
   useEffect(() => {
     fetchLogs(offset);
-    const interval = setInterval(() => fetchLogs(0), 5000);
-    return () => clearInterval(interval);
   }, [fetchLogs, offset]);
 
   const handleClearLogs = async () => {
@@ -118,6 +133,34 @@ export function LogViewer() {
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', borderRadius: 6, border: '1px solid var(--color-border)', overflow: 'hidden' }}>
+              <button
+                onClick={() => setViewMode('readable')}
+                style={{
+                  padding: '6px 12px',
+                  border: 'none',
+                  backgroundColor: viewMode === 'readable' ? 'var(--color-bg-tertiary)' : 'transparent',
+                  color: viewMode === 'readable' ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                Readable
+              </button>
+              <button
+                onClick={() => setViewMode('compact')}
+                style={{
+                  padding: '6px 12px',
+                  border: 'none',
+                  backgroundColor: viewMode === 'compact' ? 'var(--color-bg-tertiary)' : 'transparent',
+                  color: viewMode === 'compact' ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                Compact
+              </button>
+            </div>
             <input
               type="text"
               placeholder="Filter logs..."
@@ -130,7 +173,7 @@ export function LogViewer() {
                 backgroundColor: 'var(--color-bg-tertiary)',
                 color: 'var(--color-text-primary)',
                 fontSize: 12,
-                width: 180,
+                width: 150,
               }}
             />
             <button
@@ -187,56 +230,64 @@ export function LogViewer() {
               fontFamily: 'ui-monospace, monospace',
               fontSize: 11,
             }}>
-              {filteredLogs.map((log, i) => (
+              {filteredLogs.map((log, i) => {
+                const ctx = log.context;
+                const humanMsg = ctx?.humanMessage || log.message;
+
+                return (
                 <div
                   key={i}
                   style={{
-                    padding: '6px 12px',
+                    padding: viewMode === 'compact' ? '4px 8px' : '8px 12px',
                     borderBottom: i < filteredLogs.length - 1 ? '1px solid var(--color-border)' : 'none',
-                    display: 'grid',
-                    gridTemplateColumns: '100px 50px 1fr',
-                    gap: 12,
-                    alignItems: 'start',
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'center',
                   }}
                 >
-                  <span style={{ color: 'var(--color-text-muted)' }}>
-                    {formatDate(log.timestamp)} {formatTimestamp(log.timestamp)}
-                  </span>
-                  <span style={{
-                    color: levelColors[log.level] || '#fff',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                  }}>
-                    {log.level}
-                  </span>
-                  <div>
-                    <span style={{ color: 'var(--color-text-secondary)' }}>{log.message}</span>
-                    {log.context && Object.keys(log.context).length > 0 && (
-                      <pre style={{
-                        margin: '4px 0 0',
+                  {viewMode === 'readable' ? (
+                    <>
+                      <span style={{ color: 'var(--color-text-muted)', fontSize: 10, minWidth: 80 }}>
+                        {formatDate(log.timestamp)}<br/>
+                        <span style={{ fontSize: 11 }}>{formatTimestamp(log.timestamp)}</span>
+                      </span>
+                      <span style={{
+                        color: levelColors[log.level] || '#fff',
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
                         fontSize: 10,
-                        color: 'var(--color-text-muted)',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-all',
+                        minWidth: 40,
+                        textAlign: 'center',
                       }}>
-                        {JSON.stringify(log.context)}
-                      </pre>
-                    )}
-                    {log.error && (
-                      <pre style={{
-                        margin: '4px 0 0',
-                        fontSize: 10,
-                        color: '#ef4444',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-all',
+                        {log.level}
+                      </span>
+                      <span style={{ color: 'var(--color-text-secondary)', flex: 1 }}>
+                        {humanMsg}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ color: 'var(--color-text-muted)', fontSize: 10, minWidth: 70 }}>
+                        {formatTimestamp(log.timestamp)}
+                      </span>
+                      <span style={{
+                        color: levelColors[log.level] || '#fff',
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        fontSize: 9,
+                        minWidth: 35,
+                        textAlign: 'center',
                       }}>
-                        {log.error.message}
-                        {log.error.stack && `\n${log.error.stack}`}
-                      </pre>
-                    )}
-                  </div>
+                        {log.level}
+                      </span>
+                      <span style={{ color: 'var(--color-text-secondary)', flex: 1, fontSize: 10 }}>
+                        {humanMsg}
+                      </span>
+                    </>
+                  )}
                 </div>
-              ))}
+              );
+            })}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

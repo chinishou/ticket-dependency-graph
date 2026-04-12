@@ -21,6 +21,9 @@ import { FloatingTaskDetailPanel } from './components/shared/FloatingTaskDetailP
 import { NotificationCenter } from './components/shared/NotificationCenter';
 import { NotificationToast } from './components/shared/NotificationToast';
 
+// Poll interval - configurable via VITE_POLL_INTERVAL env var (default 30 seconds)
+const POLL_INTERVAL_MS = parseInt(import.meta.env.VITE_POLL_INTERVAL || '30000', 10);
+
 type SubViewA = 'goal-map' | 'tech-tree';
 type SubViewB = 'company' | 'project' | 'department' | 'cross';
 
@@ -47,10 +50,10 @@ function App() {
     useNotificationStore.getState().initNotifications();
   }, [userName, isConnected]);
 
-  // Poll for updates every 5 seconds when connected
+  // Poll for updates when connected (interval configurable via VITE_POLL_INTERVAL, default 30s)
   useEffect(() => {
     if (!isConnected) return;
-    const interval = setInterval(pollForUpdates, 5000);
+    const interval = setInterval(pollForUpdates, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [isConnected, pollForUpdates]);
 
