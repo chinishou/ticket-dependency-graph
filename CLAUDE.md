@@ -65,6 +65,7 @@ Five-dimension weighted scoring (0-100):
 - `computeTaskPriorities()` accepts maps of tasks, milestones, goals, departments, and optional weight/priority overrides.
 - Tasks support `priorityOverride` — a frozen score that bypasses computation.
 - When consuming stored `CalibrationWeights`, guard for migration: `weights && 'goal' in weights ? weights : DEFAULT_WEIGHTS` (older data may lack the `goal` key).
+- **`sgPriorityAutoSync`** (store flag, default `false`) — when true, `updateTask()` calls `syncTaskPriorityToSg()` after any status change. Requires `computeTaskPriorities()` over full store state to derive the current score.
 
 ### Role-Based Access Control
 
@@ -179,6 +180,23 @@ Key fields:
 
 **GoalMapView double-click:** React Flow's `elementsSelectable={false}` silently suppresses `onNodeDoubleClick`. Double-click detection is implemented via a timestamp ref in `onNodeClick` (300ms window) — do not add `onNodeDoubleClick` back.
 
+### Log System (`server/utils/logger.ts`, `src/components/settings/LogViewer.tsx`)
+
+Server writes newline-delimited JSON to `logs/app.log`. Three log functions:
+- `logRequest(method, path, statusCode, durationMs)` — HTTP request logs. Suppresses `/poll 304` (counts silently for daily summary instead).
+- `logMutation(type, userName, entityId, success, error?, humanMessage?)` — stores structured context: `{ mutation, userName, entityId, success, humanMessage }`.
+- `logSgSync(entityType, sgId, action, success, error?)` — stores `{ sgEntity, sgId, action, success }`.
+
+**`buildHumanMessage(type, body)`** in `server/routes.ts` — called **before** the mutation runs so entity names are still in the DB for remove operations. Uses `entityName(table, id, fallback)` helper which calls `getEntity()` to resolve names (e.g. `goal-xxx` → `"My Goal"`). Produces messages like `wei chen created milestone "Test Milestone Alpha" in "test"` or `wei chen set ticket #1 status → in_progress`.
+
+**LogViewer Readable mode** (`src/components/settings/LogViewer.tsx`) — filters out pure HTTP request logs (entries where `ctx.method` present and no `humanMessage`/`mutation`), then renders structured chip rows:
+- Mutation rows: `[WHO chip]` `[ENTITY chip]` action text `[→ chip]` `[VALUE chip]`. Entity label is stripped from action text if the chip already shows it.
+- SG sync rows: `[SG chip]` `[entity chip]` `synced`/`archived`.
+- Fallback (plain messages, startup): raw text.
+- Empty state when no mutations exist yet: guides user to switch to Compact mode.
+
+**Compact mode** — shows all entries including HTTP requests, plain `humanMessage || message` text, no chips.
+
 ## ShotGrid Sync System
 
 The app can be kept in sync with Flow Production Tracking (ShotGrid/SG). There are two sync paths:
@@ -209,16 +227,42 @@ All three import from `sg_common.py` for the shared `post_to_app()` helper (retr
 All routes below require `x-sg-secret` header matching `SG_INTERNAL_SECRET`. Bootstrap requires `adminPassword` in body instead.
 
 ```
-POST /api/sg/sync/task        body: SgTicketPayload + optional goalId
-POST /api/sg/archive/task     body: { sgTicketId: number }
-POST /api/sg/sync/worker      body: SgUserPayload
-POST /api/sg/archive/worker   body: { sgUserId: number }
-POST /api/sg/sync/project     body: SgProjectPayload
-POST /api/sg/archive/project  body: { sgProjectId: number }
-POST /api/sg/bootstrap        body: { adminPassword, projects?, workers?, tickets? }
+POST /api/sg/sync/task              body: SgTicketPayload + optional goalId
+POST /api/sg/archive/task           body: { sgTicketId: number }
+POST /api/sg/sync/worker            body: SgUserPayload
+POST /api/sg/archive/worker         body: { sgUserId: number }
+POST /api/sg/sync/project           body: SgProjectPayload
+POST /api/sg/archive/project        body: { sgProjectId: number }
+POST /api/sg/update-task-status     body: { sgTicketId: number, status: string }
+POST /api/sg/update-task-priority   body: { sgTicketId: number, priority: number }
+POST /api/sg/bootstrap              body: { adminPassword, projects?, workers?, tickets? }
 ```
 
 Entity IDs for SG-synced rows are always `sg-{sgId}`. The `syncSource: 'sg'` field marks them.
+
+### Outbound SG sync (tech-tree → SG)
+
+Two store methods push changes back to SG for `syncSource: 'sg'` tasks. Both send `x-sg-secret` via `VITE_SG_INTERNAL_SECRET` env var (falls back to dev secret).
+
+- **`syncTaskStatusToSg(task)`** — called from `updateTask()` whenever status changes. Maps `TaskStatus` → SG `sg_status_list` value via `mapTaskStatusToSg()`. Calls `POST /api/sg/update-task-status` which shells out to `sg_bootstrap.py update-ticket-status`.
+- **`syncTaskPriorityToSg(task)`** — called from `updateTask()` when status changes AND `sgPriorityAutoSync` is true. Calls `computeTaskPriorities()` with full store state, maps score (0–100) → SG priority (1–5, inverse: `Math.max(1, Math.min(5, 5 - Math.floor(score / 25)))`). Calls `POST /api/sg/update-task-priority` which shells out to `sg_bootstrap.py update-ticket-priority`.
+
+Both are fire-and-forget (silent failure by design — SG sync is corrected on next inbound event).
+
+### `sg_bootstrap.py` subcommands
+
+```bash
+python sg_bootstrap.py bootstrap               # Full sync (default)
+python sg_bootstrap.py sync-projects           # Projects only
+python sg_bootstrap.py sync-workers            # Workers/users only
+python sg_bootstrap.py sync-tickets            # All tickets
+python sg_bootstrap.py sync-ticket-by-id --id=N
+python sg_bootstrap.py sync-worker-by-id --id=N
+python sg_bootstrap.py sync-project-by-id --id=N
+python sg_bootstrap.py update-ticket-status --id=N --status=VALUE
+python sg_bootstrap.py update-ticket-priority --id=N --priority=1-5
+python sg_bootstrap.py list-statuses
+```
 
 ### Source-of-truth split for Projects
 
