@@ -285,6 +285,23 @@ def cmd_update_ticket_status(args):
         print(f"Updated ticket {ticket_id} status to '{status}'")
     sys.exit(0 if success else 1)
 
+def update_ticket_priority(ticket_id, priority):
+    """Update a ticket's priority in ShotGrid (1=highest, 5=lowest)."""
+    print(f"Updating ticket {ticket_id} priority to '{priority}'...")
+    try:
+        sg.update("Ticket", ticket_id, {"priority": str(priority)})
+        print(f"Successfully updated ticket {ticket_id} priority to '{priority}'")
+        return True
+    except Exception as e:
+        print(f"ERROR: Failed to update ticket {ticket_id} priority: {e}", file=sys.stderr)
+        return False
+
+def cmd_update_ticket_priority(args):
+    ticket_id = int(args.id)
+    priority = int(args.priority)
+    success = update_ticket_priority(ticket_id, priority)
+    sys.exit(0 if success else 1)
+
 def cmd_bootstrap(_args):
     print("=" * 50)
     print("SG Bootstrap — Full sync from Flow Production Tracking")
@@ -350,6 +367,10 @@ if __name__ == "__main__":
     p_status.add_argument("--id", required=True, help="SG Ticket ID to update")
     p_status.add_argument("--status", required=True, help="New sg_status_list value")
 
+    p_priority = sub.add_parser("update-ticket-priority", help="Update a ticket's priority in SG (1-5)")
+    p_priority.add_argument("--id", required=True, help="SG Ticket ID to update")
+    p_priority.add_argument("--priority", required=True, help="New priority value (1=highest, 5=lowest)")
+
     sub.add_parser("bootstrap", help="Full bootstrap (all entities)")
 
     args = parser.parse_args()
@@ -364,6 +385,7 @@ if __name__ == "__main__":
         "sync-worker-by-id": cmd_sync_worker_by_id,
         "sync-ticket-by-id": cmd_sync_ticket_by_id,
         "update-ticket-status": cmd_update_ticket_status,
+        "update-ticket-priority": cmd_update_ticket_priority,
         "bootstrap": cmd_bootstrap,
         None: cmd_bootstrap,  # default: full bootstrap for backward compat
     }

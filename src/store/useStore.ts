@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Company, Department, Project, Goal, Task, Milestone, Worker, CalibrationWeights, UserRole, TaskStatus } from '../types';
+import { computeTaskPriorities, DEFAULT_WEIGHTS } from '../utils/priorityCalc';
 import {
   notifyTaskAssigned,
   notifyTaskStatusChanged,
@@ -84,6 +85,7 @@ interface AppState {
   // SG Status Sync
   mapTaskStatusToSg: (status: TaskStatus) => string;
   syncTaskStatusToSg: (task: Task) => void;
+  syncTaskPriorityToSg: (task: Task) => void;
 
   // Mutations (still sync for local state, fire API in background)
   updateTask: (taskId: string, updates: Partial<Task>) => void;
@@ -530,10 +532,38 @@ export const useStore = create<AppState>((set, get) => ({
     // Use raw fetch to avoid going through serverMutation (which would create a loop)
     fetch('/api/sg/update-task-status', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-sg-secret': import.meta.env.VITE_SG_INTERNAL_SECRET || 'sg-internal-dev-secret' },
       body: JSON.stringify({ sgTicketId: task.sgTicketId, status: sgStatus }),
     }).catch(() => {
       // Silently fail - SG sync is best-effort and will be corrected on next SG event
+    });
+  },
+
+  // Sync computed priority to SG (score 0-100 → SG priority 1-5, inverse scale)
+  syncTaskPriorityToSg: (task: Task) => {
+    if ((task as { syncSource?: string }).syncSource !== 'sg' || !task.sgTicketId) return;
+    const state = get();
+    const weights = state.calibrationWeights && 'goal' in state.calibrationWeights
+      ? state.calibrationWeights
+      : DEFAULT_WEIGHTS;
+    const priorities = computeTaskPriorities({
+      tasks: state.tasks,
+      milestones: state.milestones,
+      goals: state.goals,
+      departments: state.departments,
+      projects: state.projects,
+      weights,
+    });
+    const taskPriority = priorities.get(task.id);
+    if (!taskPriority) return;
+    // Map 0-100 score → SG priority 1-5 (inverse: higher score = lower number = higher SG priority)
+    const sgPriority = Math.max(1, Math.min(5, 5 - Math.floor(taskPriority.score / 25)));
+    fetch('/api/sg/update-task-priority', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-sg-secret': import.meta.env.VITE_SG_INTERNAL_SECRET || 'sg-internal-dev-secret' },
+      body: JSON.stringify({ sgTicketId: task.sgTicketId, priority: sgPriority }),
+    }).catch(() => {
+      // Silently fail - SG sync is best-effort
     });
   },
 
@@ -618,6 +648,9 @@ export const useStore = create<AppState>((set, get) => ({
       const updatedTask = newTasks.get(taskId);
       if (updatedTask) {
         get().syncTaskStatusToSg(updatedTask);
+        if (get().sgPriorityAutoSync) {
+          get().syncTaskPriorityToSg(updatedTask);
+        }
       }
     }
   },

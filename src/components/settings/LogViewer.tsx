@@ -55,6 +55,144 @@ function formatDate(ts: string): string {
   }
 }
 
+function chip(color: string, text: string) {
+  const colors: Record<string, { bg: string; fg: string }> = {
+    who:    { bg: '#1e3a5f', fg: '#60a5fa' },
+    ticket: { bg: '#1a2e1a', fg: '#4ade80' },
+    sg:     { bg: '#2d1a4d', fg: '#a78bfa' },
+    action: { bg: '#2a2000', fg: '#fbbf24' },
+    value:  { bg: '#1a2a3a', fg: '#38bdf8' },
+    error:  { bg: '#3b0b0b', fg: '#f87171' },
+  };
+  const c = colors[color] || { bg: '#1f2937', fg: '#9ca3af' };
+  return (
+    <span style={{
+      display: 'inline-block',
+      padding: '1px 6px',
+      borderRadius: 4,
+      backgroundColor: c.bg,
+      color: c.fg,
+      fontSize: 10,
+      fontWeight: 600,
+      flexShrink: 0,
+    }}>
+      {text}
+    </span>
+  );
+}
+
+function formatEntityId(id?: string): string {
+  if (!id) return '';
+  if (id.startsWith('sg-')) return `ticket #${id.replace('sg-', '')}`;
+  if (id.startsWith('goal-')) return 'goal';
+  if (id.startsWith('task-')) return 'task';
+  return id.length > 12 ? id.slice(0, 8) + '…' : id;
+}
+
+function ReadableLogRow({ log }: { log: LogEntry }) {
+  const ctx = log.context;
+
+  const tsStyle: React.CSSProperties = {
+    color: 'var(--color-text-muted)',
+    fontSize: 10,
+    minWidth: 80,
+    flexShrink: 0,
+  };
+
+  const levelBadge = (
+    <span style={{
+      color: levelColors[log.level] || '#fff',
+      fontWeight: 700,
+      fontSize: 9,
+      textTransform: 'uppercase' as const,
+      minWidth: 36,
+      textAlign: 'center' as const,
+      flexShrink: 0,
+    }}>
+      {log.level}
+    </span>
+  );
+
+  const timestamp = (
+    <span style={tsStyle}>
+      {formatDate(log.timestamp)}<br />
+      <span style={{ fontSize: 11 }}>{formatTimestamp(log.timestamp)}</span>
+    </span>
+  );
+
+  // SG sync / archive event
+  if (ctx?.sgEntity) {
+    const entityLabel = ctx.sgEntity === 'task'
+      ? `ticket #${ctx.sgId}`
+      : `${ctx.sgEntity} #${ctx.sgId}`;
+    const isSync = ctx.action === 'sync';
+    return (
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1 }}>
+        {timestamp}
+        {levelBadge}
+        {chip('sg', 'SG')}
+        {chip('ticket', entityLabel)}
+        <span style={{ color: isSync ? '#4ade80' : '#f59e0b', fontSize: 11 }}>
+          {isSync ? 'synced' : 'archived'}
+        </span>
+        {!ctx.success && chip('error', 'failed')}
+      </div>
+    );
+  }
+
+  // Mutation / humanMessage event
+  if (ctx?.mutation || ctx?.humanMessage) {
+    const humanMsg = ctx.humanMessage || log.message;
+    // Strip leading "username " from humanMessage for the action text
+    let actionText = humanMsg;
+    if (ctx.userName && humanMsg.startsWith(ctx.userName + ' ')) {
+      actionText = humanMsg.slice((ctx.userName as string).length + 1);
+    }
+    // Strip entity label from action text — it's already shown via the chip
+    const entityChipLabel = ctx.entityId ? formatEntityId(ctx.entityId as string) : '';
+    if (entityChipLabel) {
+      actionText = actionText.replace(entityChipLabel + ' ', '').trim();
+    }
+    // Split on " → " to highlight the value
+    const arrowIdx = actionText.indexOf(' → ');
+    const beforeArrow = arrowIdx >= 0 ? actionText.slice(0, arrowIdx) : actionText;
+    const afterArrow = arrowIdx >= 0 ? actionText.slice(arrowIdx + 3) : null;
+
+    return (
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1, flexWrap: 'wrap' as const }}>
+        {timestamp}
+        {levelBadge}
+        {ctx.userName && chip('who', ctx.userName as string)}
+        {ctx.entityId && chip('ticket', formatEntityId(ctx.entityId as string))}
+        <span style={{ color: 'var(--color-text-secondary)', fontSize: 11 }}>{beforeArrow}</span>
+        {afterArrow != null && (
+          <>
+            {chip('action', '→')}
+            {chip('value', afterArrow)}
+          </>
+        )}
+        {log.error && (
+          <span style={{ color: '#f87171', fontSize: 10 }}>{log.error.message}</span>
+        )}
+      </div>
+    );
+  }
+
+  // Fallback: plain message (errors, summaries, etc.)
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1 }}>
+      {timestamp}
+      {levelBadge}
+      <span style={{ color: log.level === 'ERROR' ? '#f87171' : 'var(--color-text-secondary)', fontSize: 11, flex: 1 }}>
+        {log.message}
+      </span>
+      {log.error && (
+        <span style={{ color: '#f87171', fontSize: 10 }}>{log.error.message}</span>
+      )}
+    </div>
+  );
+}
+
 export function LogViewer() {
   const adminPassword = useStore(s => s.adminPassword);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -104,12 +242,21 @@ export function LogViewer() {
     }
   };
 
-  const filteredLogs = filter
+  const textFiltered = filter
     ? logs.filter(l =>
         l.level.toLowerCase().includes(filter.toLowerCase()) ||
         l.message.toLowerCase().includes(filter.toLowerCase())
       )
     : logs;
+
+  // In readable mode, hide pure HTTP request noise (no humanMessage, no mutation context)
+  const filteredLogs = viewMode === 'readable'
+    ? textFiltered.filter(l => {
+        const ctx = l.context;
+        const isHttpNoise = ctx?.method && !ctx?.humanMessage && !ctx?.mutation;
+        return !isHttpNoise || l.level === 'ERROR';
+      })
+    : textFiltered;
 
   const hasMore = offset + logs.length < total;
 
@@ -217,7 +364,9 @@ export function LogViewer() {
           </div>
         ) : filteredLogs.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-muted)' }}>
-            No log entries
+            {viewMode === 'readable' && textFiltered.length > 0
+              ? 'No mutations or events yet — switch to Compact to see HTTP request logs'
+              : 'No log entries'}
           </div>
         ) : (
           <>
@@ -232,8 +381,6 @@ export function LogViewer() {
             }}>
               {filteredLogs.map((log, i) => {
                 const ctx = log.context;
-                const humanMsg = ctx?.humanMessage || log.message;
-
                 return (
                 <div
                   key={i}
@@ -242,29 +389,11 @@ export function LogViewer() {
                     borderBottom: i < filteredLogs.length - 1 ? '1px solid var(--color-border)' : 'none',
                     display: 'flex',
                     gap: 8,
-                    alignItems: 'center',
+                    alignItems: viewMode === 'readable' ? 'flex-start' : 'center',
                   }}
                 >
                   {viewMode === 'readable' ? (
-                    <>
-                      <span style={{ color: 'var(--color-text-muted)', fontSize: 10, minWidth: 80 }}>
-                        {formatDate(log.timestamp)}<br/>
-                        <span style={{ fontSize: 11 }}>{formatTimestamp(log.timestamp)}</span>
-                      </span>
-                      <span style={{
-                        color: levelColors[log.level] || '#fff',
-                        fontWeight: 600,
-                        textTransform: 'uppercase',
-                        fontSize: 10,
-                        minWidth: 40,
-                        textAlign: 'center',
-                      }}>
-                        {log.level}
-                      </span>
-                      <span style={{ color: 'var(--color-text-secondary)', flex: 1 }}>
-                        {humanMsg}
-                      </span>
-                    </>
+                    <ReadableLogRow log={log} />
                   ) : (
                     <>
                       <span style={{ color: 'var(--color-text-muted)', fontSize: 10, minWidth: 70 }}>
@@ -281,7 +410,7 @@ export function LogViewer() {
                         {log.level}
                       </span>
                       <span style={{ color: 'var(--color-text-secondary)', flex: 1, fontSize: 10 }}>
-                        {humanMsg}
+                        {ctx?.humanMessage || log.message}
                       </span>
                     </>
                   )}

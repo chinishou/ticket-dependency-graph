@@ -7,6 +7,7 @@ import {
   acquireLock, releaseLock, getAllLocks,
   heartbeatPresence, removePresence, getPresence,
   createUser, getUsers, getUserByName, updateUserRole,
+  getEntity,
   db,
 } from './db';
 import {
@@ -21,41 +22,94 @@ import { logger, logMutation, logSgSync, getLogs, clearLogs } from './utils/logg
 import { getTask } from './db.js';
 import type { Task } from './types.js';
 
-// Build human-readable message from mutation type + body
+// Look up an entity's name from the DB, returning it quoted or a fallback string
+function entityName(table: string, id: string, fallback: string): string {
+  if (!id) return fallback;
+  const e = getEntity(table, id) as { name?: string } | null;
+  return e?.name ? `"${e.name}"` : fallback;
+}
+
+// Build human-readable message from mutation type + body.
+// Called BEFORE the mutation runs so entity names are still available for remove ops.
 function buildHumanMessage(type: string, body: Record<string, unknown>): string {
   const user = body.userName ? `${body.userName} ` : '';
-  const id = (body.entityId ?? body.goalId ?? body.taskId ?? '') as string;
+  const id = (body.entityId ?? '') as string;
 
   switch (type) {
     case 'updateTask': {
       const updates = body.updates as Record<string, unknown>;
-      const taskName = id.startsWith('sg-') ? `ticket ${id.replace('sg-', '')}` : id;
-      if (updates.status) return `${user}set ${taskName} status → ${updates.status}`;
-      if (updates.priorityOverride) return `${user}overrode priority of ${taskName}`;
-      return `${user}updated ${taskName}`;
+      const label = id.startsWith('sg-')
+        ? `ticket #${id.replace('sg-', '')}`
+        : entityName('tasks', id, `task ${id.slice(0, 8)}`);
+      if (updates.status) return `${user}set ${label} status → ${updates.status}`;
+      if (updates.priorityOverride) return `${user}overrode priority of ${label}`;
+      if (updates.name) return `${user}renamed ${label} → "${updates.name}"`;
+      if ('assignedWorkerIds' in updates) return `${user}updated workers on ${label}`;
+      if ('dependsOnTaskIds' in updates || 'unlocksTaskIds' in updates)
+        return `${user}updated dependencies of ${label}`;
+      return `${user}updated ${label}`;
     }
-    case 'updateMilestone':
-      return `${user}updated milestone ${id}`;
-    case 'updateGoal':
-      return `${user}updated goal ${id}`;
-    case 'addGoal':
-      return `${user}created goal`;
-    case 'removeGoal':
-      return `${user}removed goal ${body.goalId}`;
-    case 'addMilestone':
-      return `${user}created milestone`;
-    case 'addTaskToGoal':
-      return `${user}added task ${body.taskId} to goal ${body.goalId}`;
-    case 'removeTaskFromGoal':
-      return `${user}removed task ${body.taskId} from goal ${body.goalId}`;
-    case 'removeMilestoneFromGoal':
-      return `${user}removed milestone ${body.milestoneId} from goal ${body.goalId}`;
+    case 'updateMilestone': {
+      const updates = body.updates as Record<string, unknown>;
+      const label = entityName('milestones', id, `milestone ${id.slice(0, 8)}`);
+      if (updates.name) return `${user}renamed ${label} → "${updates.name}"`;
+      if (updates.status) return `${user}set ${label} status → ${updates.status}`;
+      return `${user}updated ${label}`;
+    }
+    case 'updateGoal': {
+      const updates = body.updates as Record<string, unknown>;
+      const label = entityName('goals', id, `goal ${id.slice(0, 8)}`);
+      if (updates.name) return `${user}renamed ${label} → "${updates.name}"`;
+      if (updates.departmentPriority !== undefined)
+        return `${user}set ${label} priority → ${updates.departmentPriority}`;
+      return `${user}updated ${label}`;
+    }
+    case 'updateProject': {
+      const updates = body.updates as Record<string, unknown>;
+      const label = entityName('projects', id, `project ${id.slice(0, 8)}`);
+      if (updates.strategicPriority) return `${user}set ${label} priority → ${updates.strategicPriority}`;
+      return `${user}updated ${label}`;
+    }
     case 'updateDepartment':
-      return `${user}updated department ${id}`;
-    case 'updateProject':
-      return `${user}updated project ${id}`;
+      return `${user}updated ${entityName('departments', id, `department ${id.slice(0, 8)}`)}`;
     case 'updateWorker':
-      return `${user}updated worker ${id}`;
+      return `${user}updated ${entityName('workers', id, `worker ${id.slice(0, 8)}`)}`;
+    case 'addGoal': {
+      const goal = body.goal as Record<string, unknown> | undefined;
+      const name = goal?.name ? `"${goal.name}"` : 'new goal';
+      return `${user}created goal ${name}`;
+    }
+    case 'removeGoal': {
+      const gid = (body.goalId ?? '') as string;
+      const label = entityName('goals', gid, `goal ${gid.slice(0, 8)}`);
+      return `${user}removed ${label}`;
+    }
+    case 'addMilestone': {
+      const ms = body.milestone as Record<string, unknown> | undefined;
+      const name = ms?.name ? `"${ms.name}"` : 'milestone';
+      const goalLabel = ms?.goalId
+        ? entityName('goals', ms.goalId as string, '')
+        : '';
+      return `${user}created milestone ${name}${goalLabel ? ` in ${goalLabel}` : ''}`;
+    }
+    case 'addTaskToGoal': {
+      const task = body.task as Record<string, unknown> | undefined;
+      const taskLabel = task?.name
+        ? `"${task.name}"`
+        : entityName('tasks', (body.taskId ?? '') as string, String(body.taskId ?? ''));
+      const goalLabel = entityName('goals', (body.goalId ?? '') as string, '');
+      return `${user}added task ${taskLabel}${goalLabel ? ` to ${goalLabel}` : ''}`;
+    }
+    case 'removeTaskFromGoal': {
+      const taskLabel = entityName('tasks', (body.taskId ?? '') as string, String(body.taskId ?? ''));
+      const goalLabel = entityName('goals', (body.goalId ?? '') as string, '');
+      return `${user}removed task ${taskLabel}${goalLabel ? ` from ${goalLabel}` : ''}`;
+    }
+    case 'removeMilestoneFromGoal': {
+      const msLabel = entityName('milestones', (body.milestoneId ?? '') as string, String(body.milestoneId ?? ''));
+      const goalLabel = entityName('goals', (body.goalId ?? '') as string, '');
+      return `${user}removed milestone ${msLabel}${goalLabel ? ` from ${goalLabel}` : ''}`;
+    }
     default:
       return `${user}performed ${type}`;
   }
@@ -160,6 +214,10 @@ router.post('/mutations/:type', (req, res) => {
     }
   }
 
+  // Build message BEFORE mutation so entity names are still in DB for remove ops
+  const humanMessage = buildHumanMessage(type, body);
+  const logId = (body.entityId ?? body.goalId ?? body.taskId) as string | undefined;
+
   try {
     let result: unknown;
     switch (type) {
@@ -205,10 +263,10 @@ router.post('/mutations/:type', (req, res) => {
     }
     // Return full state after mutation so client stays in sync
     const entities = getAllEntities();
-    logMutation(type, body.userName, body.entityId ?? body.goalId ?? body.taskId, true, undefined, buildHumanMessage(type, body));
+    logMutation(type, body.userName, logId, true, undefined, humanMessage);
     res.json({ result, entities, lastModified: getLastModified() });
   } catch (err) {
-    logMutation(type, body.userName, body.entityId ?? body.goalId ?? body.taskId, false, err as Error, buildHumanMessage(type, body));
+    logMutation(type, body.userName, logId, false, err as Error, humanMessage);
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -470,7 +528,7 @@ router.post('/sg/archive/project', requireSgSecret, (req, res) => {
 });
 
 // Update task status in ShotGrid (tech-tree → SG sync)
-router.post('/sg/update-task-status', (req, res) => {
+router.post('/sg/update-task-status', requireSgSecret, (req, res) => {
   const { sgTicketId, status } = req.body as { sgTicketId?: number; status?: string };
   if (!sgTicketId || !status) {
     res.status(400).json({ error: 'sgTicketId and status are required' });
@@ -481,6 +539,30 @@ router.post('/sg/update-task-status', (req, res) => {
   execFile(
     pythonCmd,
     ['sg_bootstrap.py', 'update-ticket-status', `--id=${sgTicketId}`, `--status=${status}`],
+    { cwd: projectRoot, timeout: 30_000, env: { ...process.env } },
+    (err, stdout, stderr) => {
+      const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+      if (err) {
+        res.status(500).json({ error: output || err.message });
+        return;
+      }
+      res.json({ success: true, output });
+    },
+  );
+});
+
+// Update task priority in ShotGrid (tech-tree → SG sync, priority 1-5)
+router.post('/sg/update-task-priority', requireSgSecret, (req, res) => {
+  const { sgTicketId, priority } = req.body as { sgTicketId?: number; priority?: number };
+  if (!sgTicketId || priority == null) {
+    res.status(400).json({ error: 'sgTicketId and priority are required' });
+    return;
+  }
+  const projectRoot = path.resolve(import.meta.dirname, '..');
+  const pythonCmd = process.env.PYTHON_CMD || 'python';
+  execFile(
+    pythonCmd,
+    ['sg_bootstrap.py', 'update-ticket-priority', `--id=${sgTicketId}`, `--priority=${priority}`],
     { cwd: projectRoot, timeout: 30_000, env: { ...process.env } },
     (err, stdout, stderr) => {
       const output = [stdout, stderr].filter(Boolean).join('\n').trim();
