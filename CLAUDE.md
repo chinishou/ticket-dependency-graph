@@ -18,9 +18,22 @@ npm run lint         # eslint .
 
 # Preview production build
 npm run preview
-```
 
-No test framework is configured. TypeScript type-checking (`tsc -b`) is the primary validation.
+# Testing
+npm run test         # Vitest watch mode
+npm run test:run      # Vitest single run
+npm run test:coverage # Vitest with coverage report (v8)
+npm run test:e2e     # Playwright E2E tests (requires dev servers running)
+
+# Run a specific test file
+npx vitest run server/__tests__/mutations.test.ts
+npx vitest run src/utils/__tests__/priorityCalc.test.ts
+
+# Coverage targets
+# - priorityCalc.ts: > 80% (currently 91.81%)
+# - mutations.ts: > 70% (currently 72.20%)
+# - goalStatus helpers: > 90% (currently 100%)
+```
 
 ## Architecture
 

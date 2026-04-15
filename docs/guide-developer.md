@@ -379,12 +379,25 @@ Five-dimension weighted scoring producing a 0-100 score per task.
 ## 9. Build and Validation
 
 ```bash
-npm run build      # tsc -b && vite build (type-check + production bundle)
-npm run lint       # eslint .
-npm run preview    # Serve production build locally
+npm run build        # tsc -b && vite build (type-check + production bundle)
+npm run lint         # eslint .
+npm run preview      # Serve production build locally
+npm run test         # Vitest watch mode
+npm run test:run     # Vitest single run
+npm run test:coverage # Vitest with coverage report (v8)
 ```
 
-**No test framework is configured.** TypeScript type-checking (`tsc -b`) is the primary validation. The tsconfig is strict: `strict: true`, `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`, `verbatimModuleSyntax`.
+The tsconfig is strict: `strict: true`, `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`, `verbatimModuleSyntax`.
+
+### Coverage targets
+
+| File | Target | Current |
+|------|--------|---------|
+| `priorityCalc.ts` | > 80% | 91.81% |
+| `mutations.ts` | > 70% | 72.20% |
+| `goalStatus` helpers | > 90% | 100% |
+
+Test files live in `server/__tests__/` (Node environment, better-sqlite3 in-memory) and `src/**/__tests__/` (jsdom environment). E2E specs are in `e2e/` (Playwright, requires dev servers).
 
 ---
 

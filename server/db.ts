@@ -6,7 +6,7 @@ import {
 } from '../src/data/mockData';
 import { logger } from './utils/logger';
 
-const DB_PATH = path.join(import.meta.dirname, '..', 'data.db');
+const DB_PATH = process.env.DB_PATH ?? path.join(import.meta.dirname, '..', 'data.db');
 
 const db = new Database(DB_PATH);
 
@@ -68,9 +68,9 @@ function touchLastModified() {
   db.prepare(`UPDATE meta SET value = datetime('now') WHERE key = 'last_modified'`).run();
 }
 
-// Seed data if empty
+// Seed data if empty (skip in test environment)
 const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as { c: number };
-if (count.c === 0) {
+if (count.c === 0 && process.env.NODE_ENV !== 'test') {
   const insert = db.prepare('INSERT INTO entities (table_name, id, data) VALUES (?, ?, ?)');
   const seedAll = db.transaction(() => {
     // Company
