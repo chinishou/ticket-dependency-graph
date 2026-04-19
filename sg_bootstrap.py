@@ -340,7 +340,7 @@ def cmd_bootstrap(_args):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="SG sync tool for task-tech-tree")
+    parser = argparse.ArgumentParser(description="SG sync tool for ticket-dependency-graph")
     sub = parser.add_subparsers(dest="cmd")
 
     sub.add_parser("list-statuses", help="Print available project/ticket statuses as JSON")

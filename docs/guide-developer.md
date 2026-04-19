@@ -87,7 +87,7 @@ Six top-level views, role-filtered, switched via ViewSwitcher in `App.tsx`:
 ## 3. Project Structure
 
 ```
-task-tech-tree/
+ticket-dependency-graph/
   src/                          # Frontend (React)
     App.tsx                     # Root component, view switching, login gate
     main.tsx                    # Entry point

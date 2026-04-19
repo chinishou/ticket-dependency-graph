@@ -225,15 +225,16 @@ Calls `POST /api/sg/bootstrap` with admin password. Runs in order: projects → 
 
 ### 2. Live daemon sync (continuous, via sgEventDaemon)
 
-Three plugins in `shotgunEvents/src/` register callbacks with the sgEvent daemon:
+Three plugins in `sg-events-plugins/` (copied into upstream `shotgunEvents/src/` at install time) register callbacks with the sgEvent daemon:
 
 | Plugin | SG Events | App Endpoints |
 |--------|-----------|---------------|
-| `ticket_plugin.py` | `Shotgun_Ticket_New/Change/Retirement/Revival` | `/api/sg/sync/task`, `/api/sg/archive/task` |
-| `human_user_plugin.py` | `Shotgun_HumanUser_New/Change/Retirement` | `/api/sg/sync/worker`, `/api/sg/archive/worker` |
-| `project_plugin.py` | `Shotgun_Project_New/Change/Retirement` | `/api/sg/sync/project`, `/api/sg/archive/project` |
+| `sg-events-plugins/ticket_plugin.py` | `Shotgun_Ticket_New/Change/Retirement/Revival` | `/api/sg/sync/task`, `/api/sg/archive/task` |
+| `sg-events-plugins/human_user_plugin.py` | `Shotgun_HumanUser_New/Change/Retirement` | `/api/sg/sync/worker`, `/api/sg/archive/worker` |
+| `sg-events-plugins/project_plugin.py` | `Shotgun_Project_New/Change/Retirement` | `/api/sg/sync/project`, `/api/sg/archive/project` |
+| `sg-events-plugins/sg_common.py` | — | Shared `post_to_app()` helper (retry with 4xx-break) |
 
-All three import from `sg_common.py` for the shared `post_to_app()` helper (retry with 4xx-break).
+**Note:** Users must clone upstream `shotgunEvents` separately and copy plugins from `sg-events-plugins/` into `shotgunEvents/src/`.
 
 ### SG API Routes (all in `server/routes.ts`)
 

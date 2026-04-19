@@ -1,4 +1,4 @@
-# Task Tech Tree
+# Ticket Dependency Graph
 
 A game-inspired tech tree UI for managing VFX production tasks, goals, milestones, and workers across departments and projects.
 
@@ -13,7 +13,7 @@ A game-inspired tech tree UI for managing VFX production tasks, goals, milestone
 
 ## ShotGrid Integration
 
-task-tech-tree can use Flow Production Tracking (ShotGrid) as the source of truth for tasks, projects, and workers.
+Ticket Dependency Graph can use Flow Production Tracking (ShotGrid) as the source of truth for tasks, projects, and workers.
 
 ### Architecture
 
@@ -60,22 +60,35 @@ ADMIN_PASSWORD=admin2026
 
 ### Setup
 
-1. **Configure** `shotgunEvents/src/shotgunEventDaemon.conf` with your SG site, script name, and key
-2. **Set environment variables** in `.env` or shell
-3. **Run bootstrap** (first time only):
+1. Install upstream sgEvent daemon:
+   ```bash
+   git clone https://github.com/shotgunsoftware/shotgunEvents
+   pip install -r shotgunEvents/requirements.txt
+   ```
+2. Copy our plugins into it:
+   ```bash
+   cp sg-events-plugins/*.py shotgunEvents/src/
+   cp sg-events-plugins/shotgunEventDaemon.conf.example shotgunEvents/src/shotgunEventDaemon.conf
+   # Edit shotgunEvents/src/shotgunEventDaemon.conf paths for your system
+   ```
+3. Configure env vars:
+   ```bash
+   cp .env.example .env   # then fill in real values
+   ```
+4. Bootstrap (first time only):
    ```bash
    pip install shotgun_api3
    python sg_bootstrap.py
    ```
-4. **Start the app server** and the sgEvent Daemon:
+5. Start servers:
    ```bash
-   npm run server
+   npm run dev:all
    python shotgunEvents/src/shotgunEventDaemon.py foreground
    ```
 
 ### SG Field Mapping
 
-| SG Ticket Field | → | task-tech-tree Field |
+| SG Ticket Field | → | Ticket Dependency Graph Field |
 |-----------------|---|---------------------|
 | id | → | sgTicketId, ticketId |
 | title | → | name |
@@ -86,14 +99,14 @@ ADMIN_PASSWORD=admin2026
 | time_logs_sum | → | sgTimeLogged |
 | addressings_to | → | sgAssignedTo, assignedWorkerIds |
 
-| SG HumanUser Field | → | task-tech-tree Field |
+| SG HumanUser Field | → | Ticket Dependency Graph Field |
 |--------------------|---|---------------------|
 | id | → | sgUserId |
 | name | → | name |
 | permission_group | → | role (Artist→worker, Manager→coordinator, Admin→admin) |
 | department | → | departmentId, departmentName |
 
-| SG Project Field | → | task-tech-tree Field |
+| SG Project Field | → | Ticket Dependency Graph Field |
 |------------------|---|---------------------|
 | id | → | sgProjectId |
 | code | → | name |
@@ -102,7 +115,7 @@ ADMIN_PASSWORD=admin2026
 | due_date | → | endDate |
 | sg_duration_days | → | durationDays |
 
-**Status mapping** (SG → task-tech-tree):
+**Status mapping** (SG → Ticket Dependency Graph):
 - resolved/closed/final/done/complete → `completed`
 - in progress/working → `in_progress`
 - wait/ready/open/new/rev → `available`
@@ -180,4 +193,10 @@ npm run lint         # ESLint
 npm run preview      # Preview production build
 ```
 
-No test framework is configured. TypeScript type-checking (`tsc -b`) is the primary validation.
+## Testing
+
+```bash
+npm run test:run      # Vitest single run
+npm run test:coverage # Vitest with coverage report
+npm run test:e2e     # Playwright E2E tests (requires dev servers running)
+```

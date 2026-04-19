@@ -2,7 +2,7 @@
 
 ## What Was Built
 
-ShotGrid (Flow Production Tracking) is now the source of truth for **Tasks**, **Projects**, and **Workers** in task-tech-tree.
+ShotGrid (Flow Production Tracking) is now the source of truth for **Tasks**, **Projects**, and **Workers** in ticket-dependency-graph.
 
 ### Data Flow
 
@@ -105,7 +105,7 @@ name: %(SG_ED_SCRIPT_NAME)s
 key: %(SG_ED_API_KEY)s
 
 [plugins]
-paths: D:\dev\task-tech-tree\shotgunEvents\src
+paths: /path/to/shotgunEvents/src
 ```
 
 ### 3. Bootstrap (first time only)
