@@ -512,8 +512,8 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
               <span style={{ color: '#ef4444' }}>Proj:{Math.round(pri.projectFactor * (calibrationWeights?.project ?? 0.30))}</span>
               <span style={{ color: '#f59e0b' }}>Dept:{Math.round(pri.deptFactor * (calibrationWeights?.dept ?? 0.10))}</span>
               <span style={{ color: '#22c55e' }}>Goal:{Math.round(pri.goalFactor * (calibrationWeights?.goal ?? 0.20))}</span>
-              <span style={{ color: '#8b5cf6' }}>Cr:{Math.round(pri.creatorFactor * (calibrationWeights?.creator ?? 0.10))}</span>
-              <span style={{ color: '#38bdf8' }}>GF:{Math.round(pri.graphFactor * (calibrationWeights?.graph ?? 0.30))}</span>
+              <span style={{ color: '#8b5cf6' }}>Creator:{Math.round(pri.creatorFactor * (calibrationWeights?.creator ?? 0.10))}</span>
+              <span style={{ color: '#38bdf8' }}>Graph:{Math.round(pri.graphFactor * (calibrationWeights?.graph ?? 0.30))}</span>
             </div>
 
             {/* Override — direct number input (editor roles only) */}

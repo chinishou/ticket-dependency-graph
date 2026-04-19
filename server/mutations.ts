@@ -751,6 +751,7 @@ export function upsertProjectFromSg(payload: SgProjectPayload) {
       (typeof payload.name === 'string' && payload.name.trim()) ||
       `Project ${payload.id}`;
     const sgFields: Record<string, unknown> = {
+      id: projectId,
       name: safeName,
       description: payload.description || '',
       deadline: payload.endDate || '',
@@ -858,6 +859,7 @@ export function upsertWorkerFromSg(payload: SgUserPayload) {
     }
 
     const updates: Record<string, unknown> = {
+      id: workerId,
       name: safeName,
       sgUserId: payload.id,
       permissionGroup: payload.permissionGroup,
