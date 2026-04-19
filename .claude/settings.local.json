@@ -1,5 +1,4 @@
 {
-  "hasCompletedOnboarding": true,
   "permissions": {
     "allow": [
       "Bash(npm create:*)",
@@ -47,7 +46,28 @@
       "Bash(curl -s -X POST \"http://localhost:3001/api/users/yo/role\" -H 'Content-Type: application/json' -d '{\"\"role\"\":\"\"worker\"\",\"\"adminUser\"\":\"\"yo\"\"}')",
       "Bash(taskkill //F //FI \"WINDOWTITLE eq *tsx*\")",
       "Bash(npx kill-port:*)",
-      "Bash(timeout 8 bash -c 'until curl -s http://localhost:5173 > /dev/null 2>&1; do sleep 1; done; echo \"\"ready\"\"')"
+      "Bash(timeout 8 bash -c 'until curl -s http://localhost:5173 > /dev/null 2>&1; do sleep 1; done; echo \"\"ready\"\"')",
+      "mcp__chrome_devtools__list_pages",
+      "mcp__chrome_devtools__navigate_page",
+      "Bash(curl:*)",
+      "mcp__chrome_devtools__take_snapshot",
+      "mcp__chrome_devtools__click",
+      "mcp__chrome_devtools__hover",
+      "mcp__chrome_devtools__evaluate_script",
+      "mcp__chrome_devtools__fill",
+      "mcp__chrome_devtools__press_key",
+      "Bash(node -e \"console.log\\(''SG_URL:'', !!process.env.SG_URL, ''API_KEY:'', !!process.env.API_KEY, ''SG_ED_API_KEY:'', !!process.env.SG_ED_API_KEY\\)\")",
+      "Bash(node -e \"console.log\\(process.env.SG_URL, process.env.API_KEY\\)\")",
+      "Bash(taskkill:*)",
+      "Bash(powershell:*)",
+      "mcp__chrome_devtools__list_console_messages",
+      "Bash(pkill:*)",
+      "mcp__chrome_devtools__take_screenshot",
+      "Bash(git checkout:*)",
+      "Bash(ls \"D:/dev/task-tech-tree/\"*.md)",
+      "Bash(npx:*)",
+      "Bash(node --experimental-vm-modules node_modules/.bin/vitest run server/__tests__/mutations.test.ts --testNamePattern=\"upsertWorkerFromSg\")"
     ]
-  }
+  },
+  "hasCompletedOnboarding": true
 }
