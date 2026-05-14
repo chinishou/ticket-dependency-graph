@@ -1,0 +1,56 @@
+# Build outputs — recreated inside the builder stage
+node_modules
+dist
+coverage
+
+# Local SQLite (each container env should mount its own /data volume)
+*.db
+*.db-shm
+*.db-wal
+
+# Logs (mount a volume at /app/logs if you want persistence)
+logs
+
+# Secrets — must be injected at run time, never baked into the image
+.env
+.env.local
+.env.*.local
+
+# Dev tooling / IDE
+.git
+.gitignore
+.github
+.vscode
+.idea
+.claude
+.trae
+*.suo
+.DS_Store
+
+# Tests and CI artifacts that don't ship in production
+e2e
+playwright.config.ts
+playwright-report
+test-results
+*.log
+
+# Python build artifacts
+__pycache__
+*.pyc
+
+# Docs and scratch
+docs
+*.md
+!sg-events-plugins/README.md  # keep if it exists, helps daemon operators
+state_debug.json
+NUL
+example.py
+scripts
+
+# Anything Docker-related that shouldn't recurse into image
+Dockerfile
+Dockerfile.daemon
+docker-compose.yml
+.dockerignore
+# NOTE: docker/ is intentionally NOT excluded — daemon-entrypoint.sh lives
+# there and is COPYed into the daemon image.

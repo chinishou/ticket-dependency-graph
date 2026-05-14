@@ -1,4 +1,25 @@
 #!/usr/bin/env python3
+"""
+sg_client.py — ShotGrid client layer for the Node server.
+
+The Node server has no ShotGrid SDK, so every server-side operation that needs
+to talk to SG shells out to this file via `execFile`. The UI's "Import" /
+"Bootstrap" buttons in Settings → SG route through here too — they POST to
+/api/sg/trigger-sync or /api/sg/trigger-bootstrap, which spawn this script.
+
+Subcommands fall into four categories:
+
+  * Pull data into local DB:  bootstrap, sync-projects, sync-departments,
+                              sync-workers, sync-tickets,
+                              sync-project-by-id, sync-worker-by-id,
+                              sync-ticket-by-id
+  * Read SG metadata for UI:  list-statuses, list-projects
+  * Write back to SG:         update-ticket-status, update-ticket-priority
+  * Direct CLI use:           any of the above, run manually
+
+Historical note: this file was previously named sg_bootstrap.py. Renamed to
+reflect that the bootstrap operation is just one of several things it does.
+"""
 import os
 import sys
 import json
@@ -151,7 +172,7 @@ def fetch_ticket_by_id(ticket_id):
         "assignedTo": assignee_list,
     }
 
-def fetch_tickets(statuses=None):
+def fetch_tickets(statuses=None, project_ids=None):
     print("Fetching SG Tickets...")
     fields = [
         "id", "title", "description", "project",
@@ -162,6 +183,12 @@ def fetch_tickets(statuses=None):
         filters = [["sg_status_list", "in", statuses]]
     else:
         filters = [["sg_status_list", "is_not", "Closed"]]
+    if project_ids:
+        # SG accepts a list of {"type": "Project", "id": N} for an "in" filter
+        # against an entity field. Coerce ids to int so users can pass strings.
+        proj_refs = [{"type": "Project", "id": int(pid)} for pid in project_ids]
+        filters.append(["project", "in", proj_refs])
+        print(f"  Filtering to {len(proj_refs)} project(s): {[p['id'] for p in proj_refs]}")
     tickets = sg.find("Ticket", filters=filters, fields=fields)
     result = []
     for t in tickets:
@@ -219,6 +246,26 @@ def cmd_list_statuses(_args):
     }
     print(json.dumps(result))
 
+def cmd_list_projects(_args):
+    """Output JSON list of SG projects suitable for an import-filter picker.
+
+    Each entry: { id, name, sg_status }. Excludes templates. Sorted by name.
+    """
+    rows = sg.find(
+        "Project",
+        [["is_template", "is", False]],
+        ["id", "code", "name", "sg_status"],
+    )
+    out = []
+    for p in rows:
+        out.append({
+            "id": p["id"],
+            "name": p.get("code") or p.get("name") or f"Project {p['id']}",
+            "sg_status": p.get("sg_status") or "",
+        })
+    out.sort(key=lambda r: r["name"].lower())
+    print(json.dumps({"projects": out}))
+
 def cmd_sync_projects(args):
     statuses = args.statuses.split(",") if args.statuses else None
     projects = fetch_projects(statuses=statuses)
@@ -237,7 +284,8 @@ def cmd_sync_workers(_args):
 
 def cmd_sync_tickets(args):
     statuses = args.statuses.split(",") if args.statuses else None
-    tickets = fetch_tickets(statuses=statuses)
+    project_ids = [p for p in args.project_ids.split(",") if p.strip()] if args.project_ids else None
+    tickets = fetch_tickets(statuses=statuses, project_ids=project_ids)
     total = len(tickets)
     synced = 0
     for i in range(0, max(total, 1), TICKET_BATCH_SIZE):
@@ -344,6 +392,7 @@ if __name__ == "__main__":
     sub = parser.add_subparsers(dest="cmd")
 
     sub.add_parser("list-statuses", help="Print available project/ticket statuses as JSON")
+    sub.add_parser("list-projects", help="Print SG projects (id, name, sg_status) as JSON")
 
     p_proj = sub.add_parser("sync-projects", help="Sync projects (optionally filter by status)")
     p_proj.add_argument("--statuses", help="Comma-separated sg_status values to include")
@@ -351,8 +400,9 @@ if __name__ == "__main__":
     sub.add_parser("sync-departments", help="Sync departments from SG")
     sub.add_parser("sync-workers", help="Sync workers/users from SG")
 
-    p_tick = sub.add_parser("sync-tickets", help="Sync tickets (optionally filter by status)")
+    p_tick = sub.add_parser("sync-tickets", help="Sync tickets (optionally filter by status and/or project)")
     p_tick.add_argument("--statuses", help="Comma-separated sg_status_list values to include")
+    p_tick.add_argument("--project-ids", dest="project_ids", help="Comma-separated SG Project IDs to include")
 
     p_proj_one = sub.add_parser("sync-project-by-id", help="Re-sync a single project by SG ID")
     p_proj_one.add_argument("--id", required=True, help="SG Project ID to sync")
@@ -377,6 +427,7 @@ if __name__ == "__main__":
 
     handlers = {
         "list-statuses": cmd_list_statuses,
+        "list-projects": cmd_list_projects,
         "sync-projects": cmd_sync_projects,
         "sync-departments": cmd_sync_departments,
         "sync-workers": cmd_sync_workers,

@@ -1,0 +1,70 @@
+# Dockerfile.daemon — ShotGrid event daemon sidecar
+#
+# Runs upstream shotgunEvents (https://github.com/shotgunsoftware/shotgunEvents)
+# with our three plugins from sg-events-plugins/ dropped in. Forwards SG events
+# (Ticket, HumanUser, Project) to the main app container over HTTP.
+#
+# Works unchanged under Docker and Podman.
+
+FROM python:3.12-slim-bookworm AS runtime
+
+# git is needed to clone upstream shotgunEvents at build time.
+# ca-certificates so HTTPS to github + SG site works.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python deps used by the plugins and the daemon itself.
+RUN pip install --no-cache-dir \
+        shotgun_api3 \
+        requests \
+        python-dotenv
+
+# Pin upstream shotgunEvents to a specific ref for reproducible builds.
+# Override at build time:   docker build --build-arg SHOTGUNEVENTS_REF=v1.0 ...
+# The repo doesn't tag often, so we default to the master branch HEAD and
+# recommend pinning to a SHA in production deployments.
+ARG SHOTGUNEVENTS_URL=https://github.com/shotgunsoftware/shotgunEvents.git
+ARG SHOTGUNEVENTS_REF=master
+RUN git clone --depth=1 --branch "${SHOTGUNEVENTS_REF}" "${SHOTGUNEVENTS_URL}" /opt/shotgunEvents \
+    && rm -rf /opt/shotgunEvents/.git
+
+# Drop our plugin files into the daemon's plugin directory. Listing them
+# individually (instead of `COPY sg-events-plugins/ /opt/.../src/`) avoids
+# overwriting any shotgunEvents files that happen to share a name.
+COPY sg-events-plugins/sg_common.py         /opt/shotgunEvents/src/sg_common.py
+COPY sg-events-plugins/ticket_plugin.py     /opt/shotgunEvents/src/ticket_plugin.py
+COPY sg-events-plugins/human_user_plugin.py /opt/shotgunEvents/src/human_user_plugin.py
+COPY sg-events-plugins/project_plugin.py    /opt/shotgunEvents/src/project_plugin.py
+
+# The conf template uses %(VAR)s placeholders. The entrypoint substitutes
+# them with real env values at container start, so the same image can be
+# pointed at dev / staging / prod SG sites without rebuilding.
+COPY sg-events-plugins/shotgunEventDaemon.conf.example \
+     /etc/shotgunEvents/shotgunEventDaemon.conf.template
+COPY docker/daemon-entrypoint.sh /usr/local/bin/daemon-entrypoint.sh
+RUN chmod +x /usr/local/bin/daemon-entrypoint.sh
+
+# Non-root user, fixed numeric UID for Podman rootless mapping. Distinct from
+# the app container's UID (10001) so volume permissions stay obvious.
+RUN groupadd -g 10002 sgevent \
+    && useradd -u 10002 -g sgevent -m -d /home/sgevent sgevent
+
+# pidFile, eventIdFile, and per-plugin logs all live in /var/log/...
+# Mount a volume here so the eventIdFile persists across container restarts —
+# without it, the daemon will re-process every event after each restart.
+RUN mkdir -p /var/log/shotgunEventDaemon \
+    && chown -R sgevent:sgevent /opt/shotgunEvents /var/log/shotgunEventDaemon /etc/shotgunEvents
+
+USER sgevent
+WORKDIR /opt/shotgunEvents/src
+
+# Sensible defaults — APP_API_URL is overridden by docker-compose to the
+# in-cluster service name (http://app:3001). SG_INTERNAL_SECRET must match
+# the app container's value; provide via .env or -e.
+ENV APP_API_URL=http://app:3001 \
+    SG_INTERNAL_SECRET=change-me
+
+ENTRYPOINT ["/usr/local/bin/daemon-entrypoint.sh"]
+# Default to foreground so signals propagate cleanly and `docker logs` shows output.
+CMD ["foreground"]

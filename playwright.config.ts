@@ -22,5 +22,14 @@ export default defineConfig({
     url: 'http://localhost:5173',
     reuseExistingServer: true,
     timeout: 120_000,
+    // Hard guard: the E2E suite changes task status and would otherwise
+    // mutate the real ShotGrid ticket via /api/sg/update-task-status.
+    // Only effective if Playwright spawns the server itself
+    // (reuseExistingServer=true means an already-running dev server
+    // ignores these — see README "Testing safety" section).
+    env: {
+      SG_WRITE_DISABLED: '1',
+      DB_PATH: 'data.test.db',
+    },
   },
 });

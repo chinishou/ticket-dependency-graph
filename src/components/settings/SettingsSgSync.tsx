@@ -31,11 +31,11 @@ export function SettingsSgSync({ adminPassword }: Props) {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
 
-  const runSync = async (entity: string, statuses?: string[]) => {
+  const runSync = async (entity: string, statuses?: string[], projectIds?: number[]) => {
     const res = await fetch('/api/sg/trigger-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ adminPassword, entity, statuses }),
+      body: JSON.stringify({ adminPassword, entity, statuses, projectIds }),
     });
     const data = await res.json();
     if (data.success !== false) {
@@ -102,9 +102,10 @@ export function SettingsSgSync({ adminPassword }: Props) {
         />
         <EntitySyncCard
           label="Tickets"
-          description="Select which ticket statuses to import."
+          description="Select which ticket statuses to import. Optionally restrict to specific SG projects."
           entity="tickets"
           statusType="ticketStatuses"
+          projectFilter
           adminPassword={adminPassword}
           onSync={runSync}
           extra={<ResyncByIdRow adminPassword={adminPassword} />}
@@ -123,29 +124,42 @@ export function SettingsSgSync({ adminPassword }: Props) {
 // EntitySyncCard — handles status-filter flow + sync for one entity type
 // ---------------------------------------------------------------------------
 
+interface SgProjectOption {
+  id: number;
+  name: string;
+  sg_status: string;
+}
+
 interface EntitySyncCardProps {
   label: string;
   description: string;
   entity: string;
   statusType?: 'projectStatuses' | 'ticketStatuses';
+  /** Show a project allow-list filter (currently only meaningful for tickets). */
+  projectFilter?: boolean;
   adminPassword: string;
-  onSync: (entity: string, statuses?: string[]) => Promise<{ success: boolean; output?: string; error?: string }>;
+  onSync: (entity: string, statuses?: string[], projectIds?: number[]) => Promise<{ success: boolean; output?: string; error?: string }>;
   extra?: React.ReactNode;
 }
 
-function EntitySyncCard({ label, description, entity, statusType, adminPassword, onSync, extra }: EntitySyncCardProps) {
+function EntitySyncCard({ label, description, entity, statusType, projectFilter, adminPassword, onSync, extra }: EntitySyncCardProps) {
   const [loadingStatuses, setLoadingStatuses] = useState(false);
   const [availableStatuses, setAvailableStatuses] = useState<string[] | null>(null); // null = not yet loaded
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
+
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [availableProjects, setAvailableProjects] = useState<SgProjectOption[] | null>(null);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<number>>(new Set());
+
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState('');
   const [resultPhase, setResultPhase] = useState<'none' | 'done' | 'error'>('none');
   const [error, setError] = useState('');
 
-  // Auto-load statuses on mount for filtered entities
+  // Auto-load filter options on mount
   useEffect(() => {
-    if (!statusType) return;
-    fetchStatuses();
+    if (statusType) fetchStatuses();
+    if (projectFilter) fetchProjects();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchStatuses = async () => {
@@ -170,13 +184,42 @@ function EntitySyncCard({ label, description, entity, statusType, adminPassword,
     }
   };
 
+  const fetchProjects = async () => {
+    setLoadingProjects(true);
+    setError('');
+    try {
+      const res = await fetch('/api/sg/list-projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch projects');
+      const projects: SgProjectOption[] = data.projects || [];
+      setAvailableProjects(projects);
+      // Default: all selected. Empty = unbounded (server passes no --project-ids).
+      setSelectedProjectIds(new Set(projects.map((p) => p.id)));
+    } catch (e) {
+      setError(String(e));
+      setAvailableProjects([]);
+    } finally {
+      setLoadingProjects(false);
+    }
+  };
+
   const runSync = async () => {
     setRunning(true);
     setOutput('');
     setError('');
     setResultPhase('none');
     const statuses = statusType ? Array.from(selectedStatuses) : undefined;
-    const result = await onSync(entity, statuses);
+    // Only pass projectIds when filter is active AND user has narrowed the set —
+    // if everything is selected, leave it unbounded so future SG projects are
+    // included automatically.
+    const projectIds = projectFilter && availableProjects && selectedProjectIds.size < availableProjects.length
+      ? Array.from(selectedProjectIds)
+      : undefined;
+    const result = await onSync(entity, statuses, projectIds);
     setOutput(result.output || '');
     if (result.success !== false) {
       setResultPhase('done');
@@ -195,7 +238,27 @@ function EntitySyncCard({ label, description, entity, statusType, adminPassword,
     });
   };
 
-  const canRun = !running && (!statusType || (availableStatuses !== null && selectedStatuses.size > 0));
+  const toggleProject = (id: number) => {
+    setSelectedProjectIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllProjects = () => {
+    if (availableProjects) setSelectedProjectIds(new Set(availableProjects.map(p => p.id)));
+  };
+
+  const clearAllProjects = () => setSelectedProjectIds(new Set());
+
+  const canRun = !running
+    && (!statusType || (availableStatuses !== null && selectedStatuses.size > 0))
+    && (!projectFilter || (
+      availableProjects !== null  // wait for the initial fetch to complete
+      // Allow run if SG returned no projects (import unfiltered) or user picked at least one
+      && (availableProjects.length === 0 || selectedProjectIds.size > 0)
+    ));
 
   return (
     <div style={cardStyle}>
@@ -218,11 +281,12 @@ function EntitySyncCard({ label, description, entity, statusType, adminPassword,
       {statusType && (
         <div style={{ marginTop: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)' }}>Statuses</span>
             <span style={{ fontSize: 11, color: 'var(--color-text-muted)', flex: 1 }}>
               {loadingStatuses
-                ? 'Loading statuses…'
+                ? 'Loading…'
                 : availableStatuses === null
-                  ? 'Status list not loaded'
+                  ? 'Not loaded'
                   : `${selectedStatuses.size} / ${availableStatuses.length} selected`}
             </span>
             <button
@@ -252,6 +316,65 @@ function EntitySyncCard({ label, description, entity, statusType, adminPassword,
             {!loadingStatuses && availableStatuses?.length === 0 && (
               <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>No statuses found in SG</span>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Project allow-list for entities (currently only tickets). When all
+          projects are selected, no filter is sent — equivalent to "no project
+          restriction". When you narrow the set, only tickets in those SG
+          projects are imported. */}
+      {projectFilter && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)' }}>Projects</span>
+            <span style={{ fontSize: 11, color: 'var(--color-text-muted)', flex: 1 }}>
+              {loadingProjects
+                ? 'Loading…'
+                : availableProjects === null
+                  ? 'Not loaded'
+                  : availableProjects.length === 0
+                    ? 'No projects in SG'
+                    : selectedProjectIds.size === availableProjects.length
+                      ? `All ${availableProjects.length} (no project filter applied)`
+                      : `${selectedProjectIds.size} / ${availableProjects.length} selected`}
+            </span>
+            <button onClick={selectAllProjects} disabled={loadingProjects || !availableProjects?.length}
+              style={{ ...secondaryBtnStyle, padding: '3px 8px', fontSize: 11 }}>
+              All
+            </button>
+            <button onClick={clearAllProjects} disabled={loadingProjects || !availableProjects?.length}
+              style={{ ...secondaryBtnStyle, padding: '3px 8px', fontSize: 11 }}>
+              None
+            </button>
+            <button
+              onClick={fetchProjects}
+              disabled={loadingProjects}
+              style={{ ...secondaryBtnStyle, padding: '3px 8px', fontSize: 11 }}
+            >
+              {loadingProjects ? <span style={{ ...spinnerStyle, width: 10, height: 10 }} /> : '↻ Refresh'}
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+            {loadingProjects && <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>…</span>}
+            {!loadingProjects && availableProjects?.map(p => {
+              const selected = selectedProjectIds.has(p.id);
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => toggleProject(p.id)}
+                  title={`SG Project ID ${p.id}${p.sg_status ? ` · ${p.sg_status}` : ''}`}
+                  style={{
+                    padding: '3px 10px', borderRadius: 12, border: '1px solid', fontSize: 11, cursor: 'pointer',
+                    borderColor: selected ? '#60a5fa' : 'var(--color-border)',
+                    backgroundColor: selected ? 'rgba(96,165,250,0.15)' : 'transparent',
+                    color: selected ? '#60a5fa' : 'var(--color-text-muted)',
+                  }}
+                >
+                  {p.name}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

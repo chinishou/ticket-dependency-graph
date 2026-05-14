@@ -30,7 +30,7 @@ UI reflects SG-backed attributes
 | `server/mutations.ts` | SG upsert/archive mutations + status mapping |
 | `server/routes.ts` | `POST /api/sg/sync/task`, `/api/sg/archive/task`, `/api/sg/bootstrap` |
 | `shotgunEvents/src/ticket_plugin.py` | Daemon plugin: receives SG events → POSTs to app API |
-| `sg_bootstrap.py` | One-time import script for existing SG entities |
+| `sg_client.py` | SG client layer (subprocess) for bootstrap, sync, list-statuses, list-projects, and outbound ticket writes |
 | `src/store/useStore.ts` | `sgBootstrap()` admin action |
 | `src/components/tech-tree/TaskNode.tsx` | SG badge, archived opacity + icon |
 | `src/components/shared/TaskDetailPanel.tsx` | SG fields display + SG badge |
@@ -111,7 +111,7 @@ paths: /path/to/shotgunEvents/src
 ### 3. Bootstrap (first time only)
 
 ```bash
-python sg_bootstrap.py
+python sg_client.py
 ```
 
 This replaces all local projects/workers with SG data and imports all open tickets as tasks.

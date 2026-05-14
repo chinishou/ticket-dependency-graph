@@ -127,6 +127,17 @@ export function getLastModified(): string {
   return row.value;
 }
 
+// Generic key/value access on the `meta` table. Used for small singleton
+// settings like the SG status mapping that don't fit the entity model.
+export function getMeta(key: string): string | null {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setMeta(key: string, value: string): void {
+  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(key, value);
+}
+
 export function getChangedEntitiesSince(since: string) {
   const rows = db.prepare(
     'SELECT table_name, id, data FROM entities WHERE updated_at > ? ORDER BY table_name, id'

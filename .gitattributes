@@ -1,0 +1,12 @@
+# Force LF line endings on files that have to execute under Linux, regardless
+# of the contributor's git core.autocrlf setting. Shell scripts and Dockerfiles
+# break in subtle ways if checked out with CRLF on Windows and then run inside
+# a Linux container.
+*.sh         text eol=lf
+*.py         text eol=lf
+Dockerfile*  text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+
+# Everything else: let git decide based on the user's core.autocrlf.
+* text=auto

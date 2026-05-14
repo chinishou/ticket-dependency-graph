@@ -218,7 +218,7 @@ The app can be kept in sync with Flow Production Tracking (ShotGrid/SG). There a
 
 ```bash
 # Requires shotgun_api3: pip install shotgun_api3
-python sg_bootstrap.py
+python sg_client.py
 ```
 
 Calls `POST /api/sg/bootstrap` with admin password. Runs in order: projects → workers → tickets. Uses `replaceProjectsFromSg` / `replaceWorkersFromSg` (delete-then-upsert for SG-sourced rows) then upserts all tickets. Stale worker references in tasks are cleaned up atomically.
@@ -258,24 +258,24 @@ Entity IDs for SG-synced rows are always `sg-{sgId}`. The `syncSource: 'sg'` fie
 
 Two store methods push changes back to SG for `syncSource: 'sg'` tasks. Both send `x-sg-secret` via `VITE_SG_INTERNAL_SECRET` env var (falls back to dev secret).
 
-- **`syncTaskStatusToSg(task)`** — called from `updateTask()` whenever status changes. Maps `TaskStatus` → SG `sg_status_list` value via `mapTaskStatusToSg()`. Calls `POST /api/sg/update-task-status` which shells out to `sg_bootstrap.py update-ticket-status`.
-- **`syncTaskPriorityToSg(task)`** — called from `updateTask()` when status changes AND `sgPriorityAutoSync` is true. Calls `computeTaskPriorities()` with full store state, maps score (0–100) → SG priority (1–5, inverse: `Math.max(1, Math.min(5, 5 - Math.floor(score / 25)))`). Calls `POST /api/sg/update-task-priority` which shells out to `sg_bootstrap.py update-ticket-priority`.
+- **`syncTaskStatusToSg(task)`** — called from `updateTask()` whenever status changes. Maps `TaskStatus` → SG `sg_status_list` value via `mapTaskStatusToSg()`. Calls `POST /api/sg/update-task-status` which shells out to `sg_client.py update-ticket-status`.
+- **`syncTaskPriorityToSg(task)`** — called from `updateTask()` when status changes AND `sgPriorityAutoSync` is true. Calls `computeTaskPriorities()` with full store state, maps score (0–100) → SG priority (1–5, inverse: `Math.max(1, Math.min(5, 5 - Math.floor(score / 25)))`). Calls `POST /api/sg/update-task-priority` which shells out to `sg_client.py update-ticket-priority`.
 
 Both are fire-and-forget (silent failure by design — SG sync is corrected on next inbound event).
 
-### `sg_bootstrap.py` subcommands
+### `sg_client.py` subcommands
 
 ```bash
-python sg_bootstrap.py bootstrap               # Full sync (default)
-python sg_bootstrap.py sync-projects           # Projects only
-python sg_bootstrap.py sync-workers            # Workers/users only
-python sg_bootstrap.py sync-tickets            # All tickets
-python sg_bootstrap.py sync-ticket-by-id --id=N
-python sg_bootstrap.py sync-worker-by-id --id=N
-python sg_bootstrap.py sync-project-by-id --id=N
-python sg_bootstrap.py update-ticket-status --id=N --status=VALUE
-python sg_bootstrap.py update-ticket-priority --id=N --priority=1-5
-python sg_bootstrap.py list-statuses
+python sg_client.py bootstrap               # Full sync (default)
+python sg_client.py sync-projects           # Projects only
+python sg_client.py sync-workers            # Workers/users only
+python sg_client.py sync-tickets            # All tickets
+python sg_client.py sync-ticket-by-id --id=N
+python sg_client.py sync-worker-by-id --id=N
+python sg_client.py sync-project-by-id --id=N
+python sg_client.py update-ticket-status --id=N --status=VALUE
+python sg_client.py update-ticket-priority --id=N --priority=1-5
+python sg_client.py list-statuses
 ```
 
 ### Source-of-truth split for Projects

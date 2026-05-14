@@ -83,6 +83,13 @@ interface AppState {
   setSgPriorityAutoSync: (enabled: boolean) => void;
 
   // SG Status Sync
+  // Map from TaskStatus → SG sg_status_list short-code. Populated from the
+  // server (which reads from the `meta` table) on init, so the codes always
+  // match whatever the live SG site uses. Falls back to hardcoded defaults
+  // until the first load completes.
+  sgStatusMap: Record<TaskStatus, string>;
+  loadSgStatusMap: () => Promise<void>;
+  saveSgStatusMap: (map: Record<TaskStatus, string>) => Promise<boolean>;
   mapTaskStatusToSg: (status: TaskStatus) => string;
   syncTaskStatusToSg: (task: Task) => void;
   syncTaskPriorityToSg: (task: Task) => void;
@@ -185,6 +192,17 @@ export const useStore = create<AppState>((set, get) => ({
 
   calibrationWeights: undefined,
   sgPriorityAutoSync: false,
+
+  // Hardcoded fallback — kept in sync with DEFAULT_SG_STATUS_MAP in server/routes.ts.
+  // Replaced by the server-stored map after loadSgStatusMap() completes.
+  sgStatusMap: {
+    completed: 'res',
+    in_progress: 'ip',
+    available: 'opn',
+    blocked: 'hold',
+    paused: 'wtg',
+    locked: 'opn',
+  },
 
   userName: (() => {
     if (typeof window === 'undefined') return null;
@@ -436,6 +454,10 @@ export const useStore = create<AppState>((set, get) => ({
           }
         }
         set(updates);
+        // Refresh the SG status mapping each time we do a full state fetch.
+        // Cheap (single small GET) and ensures outbound writes use codes
+        // that match the configured SG site even after admin changes them.
+        void get().loadSgStatusMap();
       } else {
         set({ isConnected: false, isLoading: false });
       }
@@ -512,17 +534,47 @@ export const useStore = create<AppState>((set, get) => ({
 
   // --- SG Status Sync ---
 
-  // Map tech-tree TaskStatus to SG sg_status_list value
-  mapTaskStatusToSg: (status: TaskStatus): string => {
-    switch (status) {
-      case 'completed': return 'res';
-      case 'in_progress': return 'ip';
-      case 'available': return 'opn';
-      case 'blocked': return 'hold';
-      case 'paused': return 'wtg';
-      case 'locked': return 'opn';
-      default: return 'opn';
+  // Pull the TaskStatus → SG code mapping from /api/sg/status-map.
+  // Called from fetchState() on app init so outbound SG writes use codes
+  // that actually exist on the configured SG site.
+  loadSgStatusMap: async () => {
+    try {
+      const res = await fetch('/api/sg/status-map');
+      if (!res.ok) return;
+      const data = await res.json() as { map?: Record<string, string> };
+      if (data.map && typeof data.map === 'object') {
+        set({ sgStatusMap: { ...get().sgStatusMap, ...data.map } as Record<TaskStatus, string> });
+      }
+    } catch {
+      // Network error — keep hardcoded fallback already in state
     }
+  },
+
+  saveSgStatusMap: async (map: Record<TaskStatus, string>): Promise<boolean> => {
+    const password = get().adminPassword;
+    if (!password) return false;
+    try {
+      const res = await fetch('/api/sg/status-map', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword: password, map }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json() as { map?: Record<string, string> };
+      if (data.map) {
+        set({ sgStatusMap: { ...get().sgStatusMap, ...data.map } as Record<TaskStatus, string> });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  // Map tech-tree TaskStatus to SG sg_status_list value using the loaded map.
+  // Falls back to a sensible default for any status not in the map.
+  mapTaskStatusToSg: (status: TaskStatus): string => {
+    const map = get().sgStatusMap;
+    return map[status] || 'opn';
   },
 
   // Sync task status to SG if the task is SG-synced

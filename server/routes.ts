@@ -7,7 +7,7 @@ import {
   acquireLock, releaseLock, getAllLocks,
   heartbeatPresence, removePresence, getPresence,
   createUser, getUsers, getUserByName, updateUserRole,
-  getEntity,
+  getEntity, getMeta, setMeta,
   db,
 } from './db';
 import {
@@ -527,6 +527,67 @@ router.post('/sg/archive/project', requireSgSecret, (req, res) => {
   }
 });
 
+// Set SG_WRITE_DISABLED=1 in any environment that must not push back to the
+// real ShotGrid site (test, staging, CI, local dev pointing at prod SG).
+// The two endpoints below are the ONLY paths in the app that mutate SG.
+const SG_WRITE_DISABLED = process.env.SG_WRITE_DISABLED === '1' || process.env.SG_WRITE_DISABLED === 'true';
+
+// Fallback used only if the admin hasn't configured a mapping yet.
+// In production the mapping should come from /api/sg/status-map (persisted
+// in the meta table) so the codes always match the live SG site.
+const DEFAULT_SG_STATUS_MAP: Record<string, string> = {
+  completed: 'res',
+  in_progress: 'ip',
+  available: 'opn',
+  blocked: 'hold',
+  paused: 'wtg',
+  locked: 'opn',
+};
+
+function loadSgStatusMap(): Record<string, string> {
+  const raw = getMeta('sg_status_map');
+  if (!raw) return DEFAULT_SG_STATUS_MAP;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    // Fill in any missing keys from defaults so an incomplete saved map
+    // can never produce undefined when looked up.
+    return { ...DEFAULT_SG_STATUS_MAP, ...parsed };
+  } catch {
+    return DEFAULT_SG_STATUS_MAP;
+  }
+}
+
+// Read the current TaskStatus → SG sg_status_list mapping.
+// Open to all authenticated users so the frontend can populate
+// mapTaskStatusToSg on load.
+router.get('/sg/status-map', (_req, res) => {
+  res.json({ map: loadSgStatusMap(), defaults: DEFAULT_SG_STATUS_MAP });
+});
+
+// Save a new mapping (admin only). Body: { adminPassword, map }.
+router.post('/sg/status-map', (req, res) => {
+  const { adminPassword, map } = req.body as { adminPassword?: string; map?: Record<string, string> };
+  if (adminPassword !== ADMIN_PASSWORD) {
+    res.status(403).json({ error: 'Admin password required' });
+    return;
+  }
+  if (!map || typeof map !== 'object') {
+    res.status(400).json({ error: 'map object is required' });
+    return;
+  }
+  // Validate: keys must be known TaskStatus values, values must be non-empty strings.
+  const allowedKeys = Object.keys(DEFAULT_SG_STATUS_MAP);
+  const clean: Record<string, string> = {};
+  for (const [k, v] of Object.entries(map)) {
+    if (!allowedKeys.includes(k)) continue;
+    if (typeof v !== 'string' || !v.trim()) continue;
+    clean[k] = v.trim();
+  }
+  setMeta('sg_status_map', JSON.stringify(clean));
+  logSgSync('status-map', 'all', 'sync', true);
+  res.json({ success: true, map: loadSgStatusMap() });
+});
+
 // Update task status in ShotGrid (tech-tree → SG sync)
 router.post('/sg/update-task-status', requireSgSecret, (req, res) => {
   const { sgTicketId, status } = req.body as { sgTicketId?: number; status?: string };
@@ -534,11 +595,15 @@ router.post('/sg/update-task-status', requireSgSecret, (req, res) => {
     res.status(400).json({ error: 'sgTicketId and status are required' });
     return;
   }
+  if (SG_WRITE_DISABLED) {
+    res.json({ success: true, skipped: true, reason: 'SG_WRITE_DISABLED' });
+    return;
+  }
   const projectRoot = path.resolve(import.meta.dirname, '..');
   const pythonCmd = process.env.PYTHON_CMD || 'python';
   execFile(
     pythonCmd,
-    ['sg_bootstrap.py', 'update-ticket-status', `--id=${sgTicketId}`, `--status=${status}`],
+    ['sg_client.py', 'update-ticket-status', `--id=${sgTicketId}`, `--status=${status}`],
     { cwd: projectRoot, timeout: 30_000, env: { ...process.env } },
     (err, stdout, stderr) => {
       const output = [stdout, stderr].filter(Boolean).join('\n').trim();
@@ -558,11 +623,15 @@ router.post('/sg/update-task-priority', requireSgSecret, (req, res) => {
     res.status(400).json({ error: 'sgTicketId and priority are required' });
     return;
   }
+  if (SG_WRITE_DISABLED) {
+    res.json({ success: true, skipped: true, reason: 'SG_WRITE_DISABLED' });
+    return;
+  }
   const projectRoot = path.resolve(import.meta.dirname, '..');
   const pythonCmd = process.env.PYTHON_CMD || 'python';
   execFile(
     pythonCmd,
-    ['sg_bootstrap.py', 'update-ticket-priority', `--id=${sgTicketId}`, `--priority=${priority}`],
+    ['sg_client.py', 'update-ticket-priority', `--id=${sgTicketId}`, `--priority=${priority}`],
     { cwd: projectRoot, timeout: 30_000, env: { ...process.env } },
     (err, stdout, stderr) => {
       const output = [stdout, stderr].filter(Boolean).join('\n').trim();
@@ -653,7 +722,7 @@ router.post('/sg/list-statuses', (req, res) => {
   const pythonCmd = process.env.PYTHON_CMD || 'python';
   execFile(
     pythonCmd,
-    ['sg_bootstrap.py', 'list-statuses'],
+    ['sg_client.py', 'list-statuses'],
     { cwd: projectRoot, timeout: 30_000, env: { ...process.env } },
     (err, stdout, stderr) => {
       if (err) {
@@ -672,12 +741,43 @@ router.post('/sg/list-statuses', (req, res) => {
   );
 });
 
+// Fetch available SG projects (id, name, sg_status) for the import-filter picker.
+// Same auth pattern as list-statuses.
+router.post('/sg/list-projects', (req, res) => {
+  const { adminPassword } = req.body as { adminPassword?: string };
+  if (adminPassword !== ADMIN_PASSWORD) {
+    res.status(403).json({ error: 'Admin password required' });
+    return;
+  }
+  const projectRoot = path.resolve(import.meta.dirname, '..');
+  const pythonCmd = process.env.PYTHON_CMD || 'python';
+  execFile(
+    pythonCmd,
+    ['sg_client.py', 'list-projects'],
+    { cwd: projectRoot, timeout: 60_000, env: { ...process.env } },
+    (err, stdout, stderr) => {
+      if (err) {
+        res.status(500).json({ error: stderr || err.message });
+        return;
+      }
+      try {
+        const jsonLine = stdout.trim().split('\n').find(l => l.startsWith('{'));
+        const data = JSON.parse(jsonLine || stdout.trim());
+        res.json(data);
+      } catch {
+        res.status(500).json({ error: 'Failed to parse project list', raw: stdout });
+      }
+    },
+  );
+});
+
 // Trigger per-entity sync via Python subcommand
 router.post('/sg/trigger-sync', (req, res) => {
-  const { adminPassword, entity, statuses, sgId } = req.body as {
+  const { adminPassword, entity, statuses, projectIds, sgId } = req.body as {
     adminPassword?: string;
     entity: 'projects' | 'departments' | 'workers' | 'tickets' | 'ticket-by-id' | 'project-by-id' | 'worker-by-id' | 'bootstrap';
     statuses?: string[];
+    projectIds?: number[];
     sgId?: number;
   };
   if (adminPassword !== ADMIN_PASSWORD) {
@@ -698,7 +798,7 @@ router.post('/sg/trigger-sync', (req, res) => {
     const pythonCmd = process.env.PYTHON_CMD || 'python';
     execFile(
       pythonCmd,
-      ['sg_bootstrap.py', subcmdMap[entity], `--id=${sgId}`],
+      ['sg_client.py', subcmdMap[entity], `--id=${sgId}`],
       { cwd: projectRoot, timeout: 30_000, env: { ...process.env } },
       (err, stdout, stderr) => {
         const output = [stdout, stderr].filter(Boolean).join('\n').trim();
@@ -712,7 +812,13 @@ router.post('/sg/trigger-sync', (req, res) => {
     projects:    ['sync-projects',    ...(statuses?.length ? [`--statuses=${statuses.join(',')}`] : [])],
     departments: ['sync-departments'],
     workers:     ['sync-workers'],
-    tickets:     ['sync-tickets',     ...(statuses?.length ? [`--statuses=${statuses.join(',')}`] : [])],
+    tickets:     [
+      'sync-tickets',
+      ...(statuses?.length ? [`--statuses=${statuses.join(',')}`] : []),
+      // Empty projectIds means "all projects" — don't pass the flag at all
+      // so we match the existing no-filter behavior.
+      ...(projectIds?.length ? [`--project-ids=${projectIds.join(',')}`] : []),
+    ],
     bootstrap:   ['bootstrap'],
   };
   const args = batchSubcmdMap[entity];
@@ -724,7 +830,7 @@ router.post('/sg/trigger-sync', (req, res) => {
   const pythonCmd = process.env.PYTHON_CMD || 'python';
   execFile(
     pythonCmd,
-    ['sg_bootstrap.py', ...args],
+    ['sg_client.py', ...args],
     { cwd: projectRoot, timeout: 600_000, env: { ...process.env } },
     (err, stdout, stderr) => {
       const output = [stdout, stderr].filter(Boolean).join('\n').trim();
@@ -744,7 +850,7 @@ router.post('/sg/trigger-bootstrap', (req, res) => {
   const pythonCmd = process.env.PYTHON_CMD || 'python';
   execFile(
     pythonCmd,
-    ['sg_bootstrap.py'],
+    ['sg_client.py'],
     { cwd: projectRoot, timeout: 600_000, env: { ...process.env } },
     (err, stdout, stderr) => {
       const output = [stdout, stderr].filter(Boolean).join('\n').trim();

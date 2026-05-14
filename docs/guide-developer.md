@@ -130,7 +130,7 @@ ticket-dependency-graph/
       shotgunEventDaemon.py     # Daemon runner
       shotgunEventDaemon.conf   # Daemon config
 
-  sg_bootstrap.py               # One-time SG import script
+  sg_client.py               # One-time SG import script
   vite.config.ts                # Vite config: React plugin, Tailwind plugin, /api proxy
   tsconfig.json                 # References tsconfig.app.json + tsconfig.node.json
   tsconfig.app.json             # Frontend TS config (strict, ES2023, verbatimModuleSyntax)
@@ -266,7 +266,7 @@ The app syncs with Flow Production Tracking (ShotGrid/SG) via two paths.
 
 ```bash
 pip install shotgun_api3
-python sg_bootstrap.py
+python sg_client.py
 ```
 
 Calls `POST /api/sg/bootstrap` with admin password. Imports in order: projects, workers, tickets. Uses delete-then-upsert for SG-sourced rows, then cleans up stale worker references.
