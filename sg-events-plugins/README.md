@@ -13,6 +13,18 @@ These plugins listen to ShotGrid events and push changes to the app's internal A
 | `project_plugin.py` | `Shotgun_Project_New/Change/Retirement` | `/api/sg/sync/project`, `/api/sg/archive/project` |
 | `sg_common.py` | — | Shared `post_to_app()` helper |
 
+## Easiest path: container
+
+The repo ships a `Dockerfile.daemon` that clones upstream `shotgunEvents` at build time, drops these plugins in, and runs the daemon as a non-root user. `docker-compose.yml` wires it to the app container with a shared `.env`:
+
+```bash
+docker compose up -d --build sg-event-daemon
+```
+
+The container's entrypoint (`docker/daemon-entrypoint.sh`) renders `shotgunEventDaemon.conf` from env vars at startup, so you don't have to edit a config file in-tree. See **README → Container Deployment** for the env-var matrix.
+
+If you want to run the daemon on bare metal instead, follow the manual install below.
+
 ## Installation
 
 ### 1. Clone upstream shotgunEvents

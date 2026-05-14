@@ -13,31 +13,39 @@ npm run dev          # Frontend only — proxies /api to :3001
 npm run server       # Backend only (tsx server/index.ts)
 
 # Build & check
-npm run build        # tsc -b && vite build
+npm run build        # tsc -b && vite build (produces dist/ for static serve)
 npm run lint         # eslint .
-
-# Preview production build
-npm run preview
+npm run preview      # Preview production build
 
 # Testing
 npm run test         # Vitest watch mode
-npm run test:run      # Vitest single run
-npm run test:coverage # Vitest with coverage report (v8)
-npm run test:e2e     # Playwright E2E tests (requires dev servers running)
+npm run test:run     # Vitest single run
+npm run test:coverage
+npm run test:e2e     # Playwright (uses dev server it spawns)
 
-# Run a specific test file
+# Single test file
 npx vitest run server/__tests__/mutations.test.ts
 npx vitest run src/utils/__tests__/priorityCalc.test.ts
 
-# Coverage targets
-# - priorityCalc.ts: > 80% (currently 91.81%)
-# - mutations.ts: > 70% (currently 72.20%)
-# - goalStatus helpers: > 90% (currently 100%)
+# Containers — work identically with podman build / podman compose
+docker build -t ticket-dep-graph:latest .                # app image
+docker build -f Dockerfile.daemon -t ticket-dep-graph-daemon:latest .
+docker compose up -d --build                             # both services + volumes
 ```
+
+## ⚠️ Production Safety
+
+Three things can damage real data and must not be discovered the hard way:
+
+1. **Vitest's `mutations.test.ts` calls `DELETE FROM entities` in `beforeEach`.** `vitest.setup.ts` pins `DB_PATH=./data.test.db` before any module loads — **never remove this setup file or its reference in `vitest.config.ts`**.
+2. **E2E `task-update.spec.ts` clicks "Mark Complete" on a real task.** If the task is SG-synced and the dev server has no `SG_WRITE_DISABLED=1`, the app pushes the status change to live SG. `playwright.config.ts` sets the env var only for the server it spawns — already-running `npm run dev:all` instances ignore it.
+3. **Default secrets are public.** `ADMIN_PASSWORD=admin2026` and `SG_INTERNAL_SECRET=sg-internal-dev-secret` are hardcoded fallbacks in source. Override both in any non-toy deployment.
+
+`SG_WRITE_DISABLED=1` short-circuits **the only two paths that mutate SG**: `/api/sg/update-task-status` and `/api/sg/update-task-priority` in `server/routes.ts`. Everything else reads SG or writes only to local SQLite.
 
 ## Architecture
 
-**Pipeline team ticket system and tech tree** — add-on to ShotGrid (SG) that adds cross-project associations, goal-based organization, and task dependency graphs that SG's single-project-per-ticket model cannot represent. All workers are assumed to be pipeline team. See `plan.md` for the active improvement roadmap.
+**Pipeline team ticket system and tech tree** — add-on to ShotGrid (SG) that adds cross-project associations, goal-based organization, and task dependency graphs that SG's single-project-per-ticket model cannot represent. All workers are assumed to be pipeline team.
 
 ### Data Model Hierarchy
 
@@ -59,7 +67,7 @@ All entities have bidirectional dependency links (e.g., `task.dependsOnTaskIds` 
   - **B: Dashboard** — Drill-down: Company → Project/Department cards with progress stats. Sub-views: `company`, `project`, `department`, `cross`. The `cross` sub-view (`CrossView`) renders a Department × Project matrix table showing task counts, progress, and goal pills per cell. Inline P1/P2/P3 priority buttons (coordinator+ only). Admin landing page.
   - **C: Timeline** — Custom Gantt with dependency-based date scheduling, month axis, today marker.
   - **D: Workers** — Worker list by department, detail with active tasks, unlocks, priority-sorted queue. Admin/coordinator only.
-  - **E: Settings** — Priority weight sliders, calibration wizard, lead list, role management. Admin only.
+  - **E: Settings** — Priority weight sliders, calibration wizard, lead list, role management, SG import/sync, SG status mapping, log viewer. Admin only.
 - **Graph layout** (`src/utils/graphLayout.ts`) — dagre → React Flow node positions with explicit child ordering for deterministic layouts.
 
 ### Priority System (`src/utils/priorityCalc.ts`)
@@ -104,14 +112,17 @@ Three roles: **Admin**, **Coordinator**, **Worker** (`src/types/index.ts: UserRo
 
 ### Backend (server/)
 
-- **Express 5 + better-sqlite3** on port 3001
+- **Express 5 + better-sqlite3** on port 3001 (override via `PORT` env var; honored by `server/index.ts`).
 - **Single `entities` table** with JSON blobs: `(table_name, id, data, updated_at)` — no ORM, no migrations.
 - **`users` table** — `(name, role, created_at)`. Roles: `worker` or `coordinator` only (admin never stored).
+- **`meta` table** — generic key/value store. `last_modified` for polling, `sg_status_map` for the outbound SG status mapping. Use `getMeta`/`setMeta` helpers in `server/db.ts`.
 - **Bidirectional sync** in `server/mutations.ts` — updating one side of a dependency automatically updates the other side, wrapped in SQLite transactions. Supports `updateTask`, `updateMilestone`, `updateGoal`, `updateDepartment`, `updateProject`, `updateWorker`, `addGoal`, `addMilestone`, `addTaskToGoal`, `removeTaskFromGoal`, `removeGoal`, `removeMilestoneFromGoal`.
 - **DB query ordering** — both `getAllEntities` and `getChangedEntitiesSince` in `server/db.ts` use `ORDER BY table_name, id`. This is load-bearing: `INSERT OR REPLACE` in SQLite reorders rows, so without `ORDER BY` the `Map.keys()` order is non-deterministic, which breaks fallback logic in `App.tsx` that uses `Array.from(departmentsMap.keys())[0]`.
 - **Presence system** — `presence` table with `(scope, user_name)` composite PK, 3-minute heartbeat timeout. Cleanup on sign-out captures `userName` in closure (store may already be null at cleanup time).
 - **Edit locks** — pessimistic at goal/tree scope, 5-minute auto-expiry.
 - **Polling** — clients call `GET /api/poll?since=<ts>` every 30s by default (configurable via `VITE_POLL_INTERVAL` env var in ms).
+- **Static serving** — when `SERVE_STATIC=1` or `NODE_ENV=production`, Express also serves the built `dist/` directory with SPA fallback for non-`/api` paths. Dev mode (`npm run dev:all`) leaves it off so Vite handles the frontend on :5173.
+- **Graceful shutdown** — `SIGTERM`/`SIGINT` handlers in `server/index.ts` stop accepting connections, drain in-flight requests, call `db.close()` (WAL checkpoint), and exit within 8 s. Important for clean container restarts.
 - Vite proxies `/api` to the Express server in dev mode (configured in `vite.config.ts`).
 
 ### Notification System
@@ -187,7 +198,7 @@ Key fields:
 - `Project.sgProjectId`, `Project.startDate`, `Project.endDate`, `Project.durationDays`.
 
 **Archived entity semantics:**
-- `archived: true` is a soft-delete; entity stays in DB and renders in the Tech Tree (muted, 40% opacity + 📁 badge) but is excluded from all other views, priority calculations, workload counts, and notification triggers.
+- `archived: true` is a soft-delete; entity stays in DB and renders in the Tech Tree (muted, 40% opacity + folder badge) but is excluded from all other views, priority calculations, workload counts, and notification triggers.
 - `getTasksForGoal` intentionally includes archived tasks so the Tech Tree can render them with their dependency edges intact.
 - All other store getters and view components must filter `!t.archived`.
 
@@ -202,54 +213,69 @@ Server writes newline-delimited JSON to `logs/app.log`. Three log functions:
 
 **`buildHumanMessage(type, body)`** in `server/routes.ts` — called **before** the mutation runs so entity names are still in the DB for remove operations. Uses `entityName(table, id, fallback)` helper which calls `getEntity()` to resolve names (e.g. `goal-xxx` → `"My Goal"`). Produces messages like `wei chen created milestone "Test Milestone Alpha" in "test"` or `wei chen set ticket #1 status → in_progress`.
 
-**LogViewer Readable mode** (`src/components/settings/LogViewer.tsx`) — filters out pure HTTP request logs (entries where `ctx.method` present and no `humanMessage`/`mutation`), then renders structured chip rows:
-- Mutation rows: `[WHO chip]` `[ENTITY chip]` action text `[→ chip]` `[VALUE chip]`. Entity label is stripped from action text if the chip already shows it.
-- SG sync rows: `[SG chip]` `[entity chip]` `synced`/`archived`.
-- Fallback (plain messages, startup): raw text.
-- Empty state when no mutations exist yet: guides user to switch to Compact mode.
-
-**Compact mode** — shows all entries including HTTP requests, plain `humanMessage || message` text, no chips.
+**LogViewer Readable mode** filters out pure HTTP request logs (entries where `ctx.method` present and no `humanMessage`/`mutation`), then renders structured chip rows. **Compact mode** shows all entries including HTTP requests, plain `humanMessage || message` text, no chips.
 
 ## ShotGrid Sync System
 
-The app can be kept in sync with Flow Production Tracking (ShotGrid/SG). There are two sync paths:
+The Node server has no ShotGrid SDK; **every server-side operation that talks to SG shells out to `sg_client.py` via `execFile`**. This includes the UI's Settings → SG Import buttons (which POST to `/api/sg/trigger-sync` and `/api/sg/trigger-bootstrap`), the status/project dropdowns, and outbound ticket writes. There's no separate "bootstrap" workflow — the script is the SG client layer.
 
-### 1. Bootstrap (one-time, manual)
+The companion live-event path is the **sgEvent daemon** (separate process), which forwards SG events to the app's `/api/sg/sync/*` endpoints over HTTP.
+
+### `sg_client.py` subcommands
 
 ```bash
-# Requires shotgun_api3: pip install shotgun_api3
-python sg_client.py
+python sg_client.py bootstrap               # Full sync (default)
+python sg_client.py sync-projects [--statuses=...]
+python sg_client.py sync-workers
+python sg_client.py sync-tickets [--statuses=...] [--project-ids=...]
+python sg_client.py sync-ticket-by-id --id=N
+python sg_client.py sync-worker-by-id --id=N
+python sg_client.py sync-project-by-id --id=N
+python sg_client.py update-ticket-status --id=N --status=VALUE   # writes to SG
+python sg_client.py update-ticket-priority --id=N --priority=1-5 # writes to SG
+python sg_client.py list-statuses                                # JSON metadata
+python sg_client.py list-projects                                # JSON metadata
 ```
 
-Calls `POST /api/sg/bootstrap` with admin password. Runs in order: projects → workers → tickets. Uses `replaceProjectsFromSg` / `replaceWorkersFromSg` (delete-then-upsert for SG-sourced rows) then upserts all tickets. Stale worker references in tasks are cleaned up atomically.
+The only two subcommands that mutate SG are `update-ticket-status` and `update-ticket-priority`. Both are routed through `/api/sg/update-task-*` endpoints and gated by `SG_WRITE_DISABLED`.
 
-### 2. Live daemon sync (continuous, via sgEventDaemon)
-
-Three plugins in `sg-events-plugins/` (copied into upstream `shotgunEvents/src/` at install time) register callbacks with the sgEvent daemon:
+### Daemon plugins (`sg-events-plugins/`)
 
 | Plugin | SG Events | App Endpoints |
 |--------|-----------|---------------|
-| `sg-events-plugins/ticket_plugin.py` | `Shotgun_Ticket_New/Change/Retirement/Revival` | `/api/sg/sync/task`, `/api/sg/archive/task` |
-| `sg-events-plugins/human_user_plugin.py` | `Shotgun_HumanUser_New/Change/Retirement` | `/api/sg/sync/worker`, `/api/sg/archive/worker` |
-| `sg-events-plugins/project_plugin.py` | `Shotgun_Project_New/Change/Retirement` | `/api/sg/sync/project`, `/api/sg/archive/project` |
-| `sg-events-plugins/sg_common.py` | — | Shared `post_to_app()` helper (retry with 4xx-break) |
+| `ticket_plugin.py` | `Shotgun_Ticket_New/Change/Retirement/Revival` | `/api/sg/sync/task`, `/api/sg/archive/task` |
+| `human_user_plugin.py` | `Shotgun_HumanUser_New/Change/Retirement` | `/api/sg/sync/worker`, `/api/sg/archive/worker` |
+| `project_plugin.py` | `Shotgun_Project_New/Change/Retirement` | `/api/sg/sync/project`, `/api/sg/archive/project` |
+| `sg_common.py` | — | Shared `post_to_app()` helper (retry with 4xx-break) |
 
-**Note:** Users must clone upstream `shotgunEvents` separately and copy plugins from `sg-events-plugins/` into `shotgunEvents/src/`.
+The daemon image (`Dockerfile.daemon`) clones upstream `shotgunEvents` at build time and drops these plugins into `src/`. For bare-metal: users clone `shotgunEvents` themselves and copy plugins in.
 
 ### SG API Routes (all in `server/routes.ts`)
 
-All routes below require `x-sg-secret` header matching `SG_INTERNAL_SECRET`. Bootstrap requires `adminPassword` in body instead.
+All `/api/sg/*` routes that the daemon hits require an `x-sg-secret` header matching `SG_INTERNAL_SECRET`. Routes that the UI hits use `adminPassword` in the body instead.
 
 ```
-POST /api/sg/sync/task              body: SgTicketPayload + optional goalId
-POST /api/sg/archive/task           body: { sgTicketId: number }
-POST /api/sg/sync/worker            body: SgUserPayload
-POST /api/sg/archive/worker         body: { sgUserId: number }
-POST /api/sg/sync/project           body: SgProjectPayload
-POST /api/sg/archive/project        body: { sgProjectId: number }
-POST /api/sg/update-task-status     body: { sgTicketId: number, status: string }
-POST /api/sg/update-task-priority   body: { sgTicketId: number, priority: number }
-POST /api/sg/bootstrap              body: { adminPassword, projects?, workers?, tickets? }
+# Daemon-facing (x-sg-secret)
+POST /api/sg/sync/task               body: SgTicketPayload + optional goalId
+POST /api/sg/archive/task            body: { sgTicketId }
+POST /api/sg/sync/worker             body: SgUserPayload
+POST /api/sg/archive/worker          body: { sgUserId }
+POST /api/sg/sync/project            body: SgProjectPayload
+POST /api/sg/archive/project         body: { sgProjectId }
+POST /api/sg/update-task-status      body: { sgTicketId, status }   ← writes to SG
+POST /api/sg/update-task-priority    body: { sgTicketId, priority } ← writes to SG
+
+# UI-facing (adminPassword)
+GET  /api/sg/status                  → { url, configured, counts, lastModified }
+GET  /api/sg/status-map              → { map, defaults }            (open)
+POST /api/sg/status-map              body: { adminPassword, map }
+POST /api/sg/list-statuses           body: { adminPassword }        → spawns Python
+POST /api/sg/list-projects           body: { adminPassword }        → spawns Python
+POST /api/sg/trigger-sync            body: { adminPassword, entity, statuses?, projectIds?, sgId? }
+POST /api/sg/trigger-bootstrap       body: { adminPassword }
+POST /api/sg/sync-departments        body: { adminPassword, departments }
+POST /api/sg/bootstrap               body: { adminPassword, projects?, workers?, tickets? }
+POST /api/sg/clear-sg-data           body: { adminPassword }
 ```
 
 Entity IDs for SG-synced rows are always `sg-{sgId}`. The `syncSource: 'sg'` field marks them.
@@ -261,28 +287,26 @@ Two store methods push changes back to SG for `syncSource: 'sg'` tasks. Both sen
 - **`syncTaskStatusToSg(task)`** — called from `updateTask()` whenever status changes. Maps `TaskStatus` → SG `sg_status_list` value via `mapTaskStatusToSg()`. Calls `POST /api/sg/update-task-status` which shells out to `sg_client.py update-ticket-status`.
 - **`syncTaskPriorityToSg(task)`** — called from `updateTask()` when status changes AND `sgPriorityAutoSync` is true. Calls `computeTaskPriorities()` with full store state, maps score (0–100) → SG priority (1–5, inverse: `Math.max(1, Math.min(5, 5 - Math.floor(score / 25)))`). Calls `POST /api/sg/update-task-priority` which shells out to `sg_client.py update-ticket-priority`.
 
-Both are fire-and-forget (silent failure by design — SG sync is corrected on next inbound event).
+Both are fire-and-forget (silent failure by design — SG sync is corrected on next inbound event). Both bail server-side when `SG_WRITE_DISABLED=1`.
 
-### `sg_client.py` subcommands
+### Configurable status mapping
 
-```bash
-python sg_client.py bootstrap               # Full sync (default)
-python sg_client.py sync-projects           # Projects only
-python sg_client.py sync-workers            # Workers/users only
-python sg_client.py sync-tickets            # All tickets
-python sg_client.py sync-ticket-by-id --id=N
-python sg_client.py sync-worker-by-id --id=N
-python sg_client.py sync-project-by-id --id=N
-python sg_client.py update-ticket-status --id=N --status=VALUE
-python sg_client.py update-ticket-priority --id=N --priority=1-5
-python sg_client.py list-statuses
-```
+The TaskStatus → SG `sg_status_list` mapping used for outbound writes is **persisted in the `meta` table** (key `sg_status_map`) and configured from Settings → SG → "Status Mapping (Outbound)".
+
+- Server defaults are in `DEFAULT_SG_STATUS_MAP` (`server/routes.ts`): `completed`→`res`, `in_progress`→`ip`, `available`/`locked`→`opn`, `blocked`→`hold`, `paused`→`wtg`.
+- Frontend mirrors them in `useStore.sgStatusMap` (initial value) and overwrites from `/api/sg/status-map` on every `fetchState()`.
+- `mapTaskStatusToSg(status)` in the store reads from `sgStatusMap` with `'opn'` as ultimate fallback.
+- The `SgStatusMap` component (`src/components/settings/SgStatusMap.tsx`) populates dropdown options from `POST /api/sg/list-statuses` (live SG site, no hardcoded codes user-facing) and flags codes that no longer exist in SG.
+
+### Project filter for ticket imports
+
+The Tickets card in Settings → SG → SG Import has a Projects filter populated live from `POST /api/sg/list-projects` (which runs `python sg_client.py list-projects`). When the user narrows the selection, `projectIds` is sent to `/api/sg/trigger-sync` and added to the `sync-tickets --project-ids=...` argv. When all projects are selected, no flag is passed (so newly-added SG projects auto-flow into future imports). This is **import-time only** — the live daemon still forwards every ticket event regardless of project.
 
 ### Source-of-truth split for Projects
 
 `upsertProjectFromSg` only overwrites SG-owned fields (`name`, `description`, `startDate`, `endDate`, `durationDays`, `sgProjectId`, `syncSource`). On **re-sync of an existing project**, local fields are never touched: `strategicPriority`, `status`, `contributingDepartmentIds`, `goalIds`, `milestoneIds`. Defaults (`P2`, `active`, `[]`) only apply on **first create**.
 
-### Status mapping (`mapSgStatusToTaskStatus` in `server/mutations.ts`)
+### Status mapping inbound (`mapSgStatusToTaskStatus` in `server/mutations.ts`)
 
 Keyword substring match (case-insensitive), first match wins, falls back to `'locked'`:
 
@@ -298,19 +322,50 @@ Keyword substring match (case-insensitive), first match wins, falls back to `'lo
 
 `permissionGroup` string (from SG) → local `role`:  Artist → `worker` · Manager → `coordinator` · Admin → `admin` · anything else → `worker`.
 
-### Required environment variables
+## Container Deployment
+
+Two images and a Compose file:
+
+- **`Dockerfile`** → `ticket-dep-graph:latest`. Multi-stage build (`builder` compiles frontend + native bindings, `runtime` is `node:20-bookworm-slim` + Python + `shotgun_api3`). Non-root UID 10001. `SERVE_STATIC=1` and `DB_PATH=/data/data.db` baked as defaults. Healthcheck via Node `fetch` on `/api/state`.
+- **`Dockerfile.daemon`** → `ticket-dep-graph-daemon:latest`. `python:3.12-slim-bookworm` base, clones upstream `shotgunEvents` at build time (`SHOTGUNEVENTS_REF` build-arg for pinning), drops the four plugin files into `src/`. Non-root UID 10002. `docker/daemon-entrypoint.sh` renders `shotgunEventDaemon.conf` from env vars via `sed` then `exec`s the daemon so PID 1 is Python.
+- **`docker-compose.yml`** — both services, three named volumes (`tdg-data`, `tdg-logs`, `tdg-daemon-state`), `depends_on: condition: service_healthy` so the daemon waits for the app's healthcheck. The daemon's `APP_API_URL` is overridden to `http://app:3001` for in-cluster DNS.
+
+Both images build identically under `docker build` and `podman build` — no BuildKit-only syntax is used. `.gitattributes` forces LF on shell scripts and Dockerfiles to prevent CRLF corruption from Windows clones.
+
+## Test isolation
+
+- **`vitest.setup.ts`** — runs before any test imports. Sets `DB_PATH=./data.test.db` and `SG_WRITE_DISABLED=1` so the destructive setup in `server/__tests__/mutations.test.ts` can never touch `data.db` and no outbound SG mutation can fire.
+- **`vitest.config.ts`** — wires `setupFiles: ['./vitest.setup.ts']`. Without this, the tests would open `process.env.DB_PATH ?? 'data.db'`.
+- **`playwright.config.ts`** — passes `SG_WRITE_DISABLED=1` and `DB_PATH=data.test.db` to its spawned web server. **Caveat:** `reuseExistingServer: true` means an already-running `npm run dev:all` instance is reused with its original env. Before running E2E, stop the dev server or start it with these vars yourself.
+
+## Environment variables
 
 ```bash
-# Shared (all plugins + routes)
-SG_INTERNAL_SECRET=sg-internal-dev-secret   # must match x-sg-secret header
-APP_API_URL=http://localhost:3001
+# Core
+PORT=3001                                  # honored by server/index.ts
+DB_PATH=./data.db                          # separate file per environment
+SERVE_STATIC=                              # set to 1 in production / container
+NODE_ENV=                                  # production toggles JSON log output
+PYTHON_CMD=python3                         # interpreter for sg_client.py subprocess
+ADMIN_PASSWORD=                            # CHANGE — default 'admin2026' is in source
 
-# Per-plugin daemon credentials (sgEvent script name + key from SG admin)
-SGDAEMON_TICKET_NAME=...        SGDAEMON_TICKET_KEY=...
-SGDAEMON_HUMANUSER_NAME=...     SGDAEMON_HUMANUSER_KEY=...
-SGDAEMON_PROJECT_NAME=...       SGDAEMON_PROJECT_KEY=...
+# Outbound SG writes — set to 1 in test/staging/CI/dev pointing at prod SG
+SG_WRITE_DISABLED=
 
-# Bootstrap script only
+# Shared (app server + daemon plugins)
+SG_INTERNAL_SECRET=                        # CHANGE — default in source is public
+APP_API_URL=http://localhost:3001          # daemon overrides to http://app:3001 in compose
+VITE_SG_INTERNAL_SECRET=                   # baked into JS bundle at build; equals SG_INTERNAL_SECRET
+
+# Bootstrap script + outbound update-ticket calls
 SG_URL=https://your-site.shotgrid.autodesk.com
-SCRIPT_NAME=dev    API_KEY=...    ADMIN_PASSWORD=admin2026
+SCRIPT_NAME=
+API_KEY=
+
+# Daemon-only (one script name+key per plugin from SG admin)
+SG_ED_SITE_URL=        SG_ED_SCRIPT_NAME=        SG_ED_API_KEY=
+SGDAEMON_TICKET_NAME=  SGDAEMON_TICKET_KEY=
+SGDAEMON_HUMANUSER_NAME=  SGDAEMON_HUMANUSER_KEY=
+SGDAEMON_PROJECT_NAME=  SGDAEMON_PROJECT_KEY=
+SG_ED_EMAIL_ENABLED=false  # set true only with real SMTP server in conf
 ```

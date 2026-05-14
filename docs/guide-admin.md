@@ -18,9 +18,11 @@ For shared features (Tech Tree editing, Dashboard drill-down, Timeline, Workers 
   - [Formula Preview](#formula-preview)
   - [Lead List](#lead-list)
   - [Role Management](#role-management)
+  - [SG Status Mapping (Outbound)](#sg-status-mapping-outbound)
   - [SG Import (ShotGrid Sync)](#sg-import-shotgrid-sync)
     - [Connection Status](#connection-status)
     - [Importing Entities](#importing-entities)
+    - [Restricting Imports to Specific SG Projects](#restricting-imports-to-specific-sg-projects)
     - [Re-importing a Single Ticket](#re-importing-a-single-ticket)
     - [Clearing SG Data](#clearing-sg-data)
 - [Important Notes](#important-notes)
@@ -188,6 +190,24 @@ If a user is currently logged in when you change their role, they will see the u
 
 ---
 
+### SG Status Mapping (Outbound)
+
+When a task status changes in the tech tree, the app pushes the change back to the matching ShotGrid `sg_status_list` code. **This section lets you configure which SG status code corresponds to each tech-tree status**, with the code options pulled live from your SG site so they always match what your site accepts.
+
+Each row shows one tech-tree status (Completed, In Progress, Available, Paused, Blocked, Locked) on the left and a dropdown of SG codes on the right. The dropdown is populated by querying your SG site for the statuses currently in use on any ticket.
+
+**How to configure:**
+
+1. The mapping loads automatically when you open the section. The dropdowns show the current saved mapping; built-in defaults (`res`, `ip`, `opn`, `hold`, `wtg`) are used if no mapping has been saved yet.
+2. Click a dropdown to pick a different SG code for that tech-tree status.
+3. Click **"↻ Refresh from SG"** at the top to re-fetch the available codes (e.g., after your SG admin adds a new status).
+4. Click **"Save mapping"** to persist. Subsequent task status changes will use the new mapping immediately.
+5. Click **"Reset"** to discard unsaved edits.
+
+**Stale codes:** If a saved code is no longer present in SG (because someone removed it from the SG site), its row is flagged with a red border and a "stale" label. The dropdown will still show the stale value so you can see what was saved, but you should pick a new code and save.
+
+> Note: Status sync **back to SG** can be globally disabled by setting the `SG_WRITE_DISABLED=1` environment variable on the app server. This is recommended for staging deployments that read SG but should never write to it. When disabled, your status changes still propagate locally but never reach SG.
+
 ### SG Import (ShotGrid Sync)
 
 This section lets you import and manage data from ShotGrid (Flow Production Tracking). It appears at the bottom of the Settings page.
@@ -222,11 +242,22 @@ Four import cards are available, one for each entity type:
 - No filter needed. Click **"Import"** to pull all human users from SG.
 
 **Tickets**
-- Status filter pills let you select which ticket statuses to import (e.g., ip, open, res, rev, wtg). Selected pills are highlighted in purple.
+- Two filter rows: **Statuses** (purple pills) and **Projects** (blue pills).
+- Status filter pills let you select which ticket statuses to import (e.g., ip, open, res, rev, wtg).
+- Project filter pills let you select which SG projects' tickets to import. **All / None** buttons toggle the whole list. When every project is selected, no filter is applied — so new SG projects you add later will automatically flow into future imports.
 - Click **"Import"** to pull matching tickets.
-- Click the **refresh icon** to reload the available status list.
+- Click the **refresh icon** next to either filter to reload from SG.
 
 After each import completes, a green success message appears (e.g., "Projects imported") or a red error message if something went wrong. The entity counts update automatically.
+
+#### Restricting Imports to Specific SG Projects
+
+The Projects filter on the Tickets card is the import-time scope for which SG projects you want to bring into the tech tree. Use it when your SG site has many projects but your pipeline team only cares about a subset.
+
+- The list is fetched **live from SG** (via the same connection used by Connection Status), so it always reflects what your SG site contains.
+- Selecting fewer projects means subsequent ticket imports skip tickets in unselected projects.
+- This is **not** a live filter — the sgEvent daemon still forwards every ticket event to the app regardless of project. If a ticket from an excluded project appears, run another filtered import (or use **Clear SG Data**) to remove it.
+- Workers / HumanUsers are global in SG and are not project-scoped, so the Workers card does not have this filter.
 
 #### Re-importing a Single Ticket
 
