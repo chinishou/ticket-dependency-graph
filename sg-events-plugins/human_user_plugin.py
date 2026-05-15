@@ -91,7 +91,7 @@ def onHumanUserEvent(sg, logger, event, args):
         if not user_id:
             logger.warning("Could not determine HumanUser id for retirement, skipping")
             return
-        result = post_to_app("/api/sg/archive/worker", {"sgUserId": user_id}, logger)
+        result = post_to_app("/api/sg/archive/worker", {"sgUserId": user_id}, logger, plugin_key="HUMANUSER")
         if result:
             logger.info(f"Archived worker for HumanUser {user_id}")
         else:
@@ -102,7 +102,7 @@ def onHumanUserEvent(sg, logger, event, args):
         if not payload:
             logger.warning("Could not build payload, skipping")
             return
-        result = post_to_app("/api/sg/sync/worker", payload, logger)
+        result = post_to_app("/api/sg/sync/worker", payload, logger, plugin_key="HUMANUSER")
         if result:
             logger.info(f"Synced worker for HumanUser {payload['id']}")
         else:

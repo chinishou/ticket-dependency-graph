@@ -59,17 +59,24 @@ Set both to long random strings before exposing the app on a network you don't f
 
 ## Container Deployment (Docker / Podman)
 
-Two images and a Compose file:
+Two images and two **independent** Compose files (the app and daemon are no longer wired into a single stack):
 
-| File                  | Image                              | Process                                                          |
-|-----------------------|------------------------------------|------------------------------------------------------------------|
-| `Dockerfile`          | `ticket-dep-graph:latest`          | Node API server (Express) + Python (`sg_client.py` subprocess) + built frontend. Single port 3001. |
-| `Dockerfile.daemon`   | `ticket-dep-graph-daemon:latest`   | ShotGrid event daemon (upstream `shotgunEvents` + our three plugins). No exposed ports — talks outbound to SG and to the app container. |
-| `docker-compose.yml`  | —                                  | Brings up both with named volumes, healthcheck-gated startup, shared `.env`. Works with `docker compose`, `podman-compose`, and `podman compose`. |
+| File                            | Image                              | Process                                                          |
+|---------------------------------|------------------------------------|------------------------------------------------------------------|
+| `Dockerfile`                    | `ticket-dep-graph:latest`          | Node API server (Express) + Python (`sg_client.py` subprocess) + built frontend. Single port 3001. |
+| `Dockerfile.daemon`             | `ticket-dep-graph-daemon:latest`   | ShotGrid event daemon (upstream `shotgunEvents` + our three plugins). No exposed ports — talks outbound to SG and to the consuming app(s) over HTTP. |
+| `docker-compose.yml`            | —                                  | **App-only.** Brings up `app` with named volumes for DB + logs. Works with `docker compose`, `podman-compose`, and `podman compose`. |
+| `docker-compose.daemon.yml`     | —                                  | **Daemon-only.** Brings up `sg-event-daemon` with its eventIdFile volume. Deploy on the same host as the app **or on a separate host**; the daemon reaches the app over HTTP via `APP_API_URL`. |
 
-### Why two images?
+### Why two images and two compose files?
 
-The app server and the event daemon have very different runtime needs (Node + Python vs. Python only) and very different lifecycles (the daemon must restart cleanly when SG creds rotate; the app shouldn't). Keeping them in separate images means a code change on one side doesn't force a rebuild of the other, and lets you scale or restart them independently.
+The app server and the event daemon have very different runtime needs (Node + Python vs. Python only) and very different lifecycles (the daemon must restart cleanly when SG creds rotate; the app shouldn't). Keeping them in separate images means a code change on one side doesn't force a rebuild of the other.
+
+Beyond that, the daemon is **not coupled to this app** — it's a generic shotgunEvents host with this app's three plugins dropped in. Splitting the compose files makes it easy to:
+
+- Run **one daemon serving multiple consuming apps**. Each plugin can be pointed at its own consumer with `APP_API_URL_TICKET` / `APP_API_URL_HUMANUSER` / `APP_API_URL_PROJECT` (any unset variable falls back to `APP_API_URL`).
+- Run the daemon on a **shared automation VM** while the app runs on a different host.
+- Swap the daemon for an existing in-house shotgunEvents deployment by copying just the three plugin files from `sg-events-plugins/`.
 
 ### About `sg_client.py`
 
@@ -107,29 +114,47 @@ docker build -f Dockerfile.daemon \
 
 ### Run (recommended — Compose)
 
+The app and daemon now ship as two independent compose stacks. Set up the app first, then deploy the daemon (on the same host or a different host).
+
+**App host:**
+
 ```bash
 cp .env.example .env
-# Edit .env. The compose file reads it for both services.
-# At minimum, set:
-#   ADMIN_PASSWORD, SG_INTERNAL_SECRET            (app & daemon)
-#   SG_URL, SCRIPT_NAME, API_KEY                  (app — bootstrap + outbound writes)
-#   SG_ED_SITE_URL, SG_ED_SCRIPT_NAME, SG_ED_API_KEY  (daemon — event stream)
-#   SGDAEMON_TICKET_NAME / _KEY, etc.             (daemon — per-plugin creds)
+# Edit .env. The app-side reads:
+#   ADMIN_PASSWORD                                 (CHANGE — default in source)
+#   SG_INTERNAL_SECRET                             (CHANGE — must match daemon)
+#   SG_URL, SCRIPT_NAME, API_KEY                   (app — bootstrap + outbound writes)
 
 docker compose up -d --build
-# or: podman compose up -d --build
+# or: podman compose up -d --build  (or podman-compose)
 
-# Watch logs
-docker compose logs -f
-docker compose logs -f app           # app only
-docker compose logs -f sg-event-daemon
-
-# Stop / restart
+# Watch logs / stop
+docker compose logs -f app
 docker compose down                  # keeps volumes
 docker compose down -v               # destroys data — be sure
 ```
 
-Browse to `http://localhost:3001` — Express serves the built frontend and the API on the same port. The daemon doesn't expose any port; it talks outbound to SG and to the `app` service via Docker's internal DNS (`http://app:3001`).
+Browse to `http://<app-host>:3001` — Express serves the built frontend and the API on the same port.
+
+**Daemon host** (can be the same host or a different host):
+
+```bash
+cp .env.example .env
+# Edit .env. The daemon-side reads:
+#   SG_INTERNAL_SECRET                             (must match the app's value)
+#   APP_API_URL=http://<app-host>:3001             (default target for all plugins)
+#   APP_API_URL_TICKET / _HUMANUSER / _PROJECT     (optional — override per plugin
+#                                                   to route to different apps)
+#   SG_ED_SITE_URL, SG_ED_SCRIPT_NAME, SG_ED_API_KEY  (event-stream credentials)
+#   SGDAEMON_TICKET_NAME / _KEY  (and HUMANUSER / PROJECT pairs — using the SAME
+#                                 script name+key for all three is fine)
+
+docker compose -f docker-compose.daemon.yml up -d --build
+docker compose -f docker-compose.daemon.yml logs -f
+docker compose -f docker-compose.daemon.yml down                  # keeps eventIdFile
+```
+
+The daemon doesn't expose any port — it talks outbound to SG and POSTs events to whichever `APP_API_URL*` you configured. If you deploy the daemon on the same host as the app and use the default docker network, set `APP_API_URL=http://<host-ip>:3001` (the two compose stacks no longer share a docker network, so `http://app:3001` will NOT resolve).
 
 ### Run (manual — single image)
 
@@ -206,7 +231,8 @@ If a request is still running at 8 s, the process exits with code 1 to make sure
 
 ```bash
 git pull
-docker compose up -d --build       # rebuilds both images, restarts both services
+docker compose up -d --build                                   # app
+docker compose -f docker-compose.daemon.yml up -d --build      # daemon
 # named volumes (tdg-data, tdg-logs, tdg-daemon-state) preserve all state
 ```
 

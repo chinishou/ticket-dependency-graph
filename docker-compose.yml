@@ -1,4 +1,10 @@
-# docker-compose.yml — runs the app server + ShotGrid event daemon together.
+# docker-compose.yml — runs the ticket-dependency-graph app server.
+#
+# The ShotGrid event daemon used to be bundled here, but it now ships as its
+# own standalone deployment so a single daemon can serve several apps. See
+# docker-compose.daemon.yml for the daemon side. Both compose files are
+# operated independently; they only share `.env` keys (SG_INTERNAL_SECRET
+# must match the daemon's value).
 #
 # Works with:
 #   - docker compose (Docker v20+ built-in)
@@ -8,12 +14,12 @@
 #
 # Usage:
 #   1. Copy .env.example to .env and fill in real secrets (especially
-#      ADMIN_PASSWORD, SG_INTERNAL_SECRET, SG_ED_SITE_URL/SCRIPT_NAME/API_KEY).
+#      ADMIN_PASSWORD, SG_INTERNAL_SECRET, SG_URL/SCRIPT_NAME/API_KEY).
 #   2. docker compose up -d --build
 #   3. Open http://localhost:3001
 #
 # To upgrade after a code change: `docker compose up -d --build` again — the
-# named volumes preserve the SQLite DB and the daemon's eventIdFile.
+# named volumes preserve the SQLite DB.
 
 services:
   app:
@@ -42,36 +48,6 @@ services:
       start_period: 20s
       retries: 3
 
-  sg-event-daemon:
-    build:
-      context: .
-      dockerfile: Dockerfile.daemon
-      # Pin shotgunEvents to a specific commit/tag for reproducible builds.
-      # args:
-      #   SHOTGUNEVENTS_REF: <commit-sha-or-tag>
-    image: ticket-dep-graph-daemon:latest
-    container_name: tdg-daemon
-    restart: unless-stopped
-    # Wait until the app's healthcheck passes before starting the daemon —
-    # otherwise the first batch of forwarded events would fail with 502s.
-    depends_on:
-      app:
-        condition: service_healthy
-    volumes:
-      # eventIdFile + per-plugin logs. Persisting this means the daemon picks
-      # up exactly where it left off after a restart; without it the daemon
-      # would either re-process old events or skip events that occurred during
-      # downtime.
-      - tdg-daemon-state:/var/log/shotgunEventDaemon
-    env_file:
-      - .env
-    # Override APP_API_URL: inside the compose network the app is reachable as
-    # http://app:3001, not localhost. The .env value (used for bare-metal dev)
-    # is wrong here.
-    environment:
-      APP_API_URL: http://app:3001
-
 volumes:
   tdg-data:
   tdg-logs:
-  tdg-daemon-state:
