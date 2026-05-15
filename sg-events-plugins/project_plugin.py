@@ -96,7 +96,7 @@ def onProjectEvent(sg, logger, event, args):
         if not project_id:
             logger.warning("Could not determine Project id for retirement, skipping")
             return
-        result = post_to_app("/api/sg/archive/project", {"sgProjectId": project_id}, logger)
+        result = post_to_app("/api/sg/archive/project", {"sgProjectId": project_id}, logger, plugin_key="PROJECT")
         if result:
             logger.info(f"Archived project {project_id}")
         else:
@@ -107,7 +107,7 @@ def onProjectEvent(sg, logger, event, args):
         if not payload:
             logger.warning("Could not build payload, skipping")
             return
-        result = post_to_app("/api/sg/sync/project", payload, logger)
+        result = post_to_app("/api/sg/sync/project", payload, logger, plugin_key="PROJECT")
         if result:
             logger.info(f"Synced project {payload['id']}")
         else:

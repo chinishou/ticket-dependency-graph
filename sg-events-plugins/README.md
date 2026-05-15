@@ -1,8 +1,8 @@
 # sg-events-plugins
 
-Custom ShotGrid sgEvent daemon plugins for the ticket-dependency-graph app.
+Custom ShotGrid sgEvent daemon plugins. These plugins listen to ShotGrid events and POST them to one or more consuming apps over HTTP.
 
-These plugins listen to ShotGrid events and push changes to the app's internal API, keeping tasks, workers, and projects in sync.
+The daemon they run inside is the upstream `shotgunEvents` project — completely app-agnostic. The plugins are the only piece that knows about specific apps.
 
 ## Plugins
 
@@ -11,14 +11,42 @@ These plugins listen to ShotGrid events and push changes to the app's internal A
 | `ticket_plugin.py` | `Shotgun_Ticket_New/Change/Retirement/Revival` | `/api/sg/sync/task`, `/api/sg/archive/task` |
 | `human_user_plugin.py` | `Shotgun_HumanUser_New/Change/Retirement` | `/api/sg/sync/worker`, `/api/sg/archive/worker` |
 | `project_plugin.py` | `Shotgun_Project_New/Change/Retirement` | `/api/sg/sync/project`, `/api/sg/archive/project` |
-| `sg_common.py` | — | Shared `post_to_app()` helper |
+| `sg_common.py` | — | Shared `post_to_app(endpoint, payload, logger, plugin_key=...)` helper |
 
-## Easiest path: container
+## Routing: one daemon, many apps
 
-The repo ships a `Dockerfile.daemon` that clones upstream `shotgunEvents` at build time, drops these plugins in, and runs the daemon as a non-root user. `docker-compose.yml` wires it to the app container with a shared `.env`:
+Each plugin passes its own `plugin_key` (`TICKET`, `HUMANUSER`, `PROJECT`) to `post_to_app`. The helper resolves the target URL like this:
+
+```
+APP_API_URL_{plugin_key}    (if set)
+↓ fallback
+APP_API_URL                 (always set; default http://localhost:3001)
+```
+
+So a single daemon can forward ticket events to one app and project events to another:
 
 ```bash
-docker compose up -d --build sg-event-daemon
+APP_API_URL=http://ticket-app.internal:3001         # default for all plugins
+APP_API_URL_HUMANUSER=http://hr-app.internal:8080   # override for HumanUser only
+```
+
+If you only have one consumer, set just `APP_API_URL` and ignore the per-plugin variants.
+
+## SG script credentials
+
+Each plugin reads its own `SGDAEMON_{TICKET,HUMANUSER,PROJECT}_{NAME,KEY}` pair from the environment, so you *can* have one script per plugin for separate audit trails. Operationally, **using the same script name + key for all three pairs is fully supported** — the plugins don't care. The script needs read access to Ticket, HumanUser, and Project entities.
+
+## Easiest path: standalone daemon container
+
+The repo ships a `Dockerfile.daemon` that clones upstream `shotgunEvents` at build time, drops these plugins in, and runs the daemon as a non-root user. `docker-compose.daemon.yml` runs the daemon as a standalone deployment (separate from the app):
+
+```bash
+cp .env.example .env
+# Set APP_API_URL (or per-plugin overrides), SG_INTERNAL_SECRET,
+# SG_ED_SITE_URL / SG_ED_SCRIPT_NAME / SG_ED_API_KEY, and the
+# SGDAEMON_* pairs.
+
+docker compose -f docker-compose.daemon.yml up -d --build
 ```
 
 The container's entrypoint (`docker/daemon-entrypoint.sh`) renders `shotgunEventDaemon.conf` from env vars at startup, so you don't have to edit a config file in-tree. See **README → Container Deployment** for the env-var matrix.
@@ -59,13 +87,16 @@ cp .env.example .env
 ```
 
 Required variables:
-- `SG_ED_SITE_URL` — your ShotGrid site URL
-- `SG_ED_SCRIPT_NAME` / `SG_ED_API_KEY` — SG script credentials
-- `SG_INTERNAL_SECRET` — shared secret with the app server
-- `APP_API_URL` — app server URL (default: `http://localhost:3001`)
+- `SG_ED_SITE_URL` — your ShotGrid site URL (the site whose events are forwarded)
+- `SG_ED_SCRIPT_NAME` / `SG_ED_API_KEY` — daemon engine script credentials
+- `SG_INTERNAL_SECRET` — shared secret with every consuming app server
+- `APP_API_URL` — default target app URL (e.g. `http://localhost:3001`)
+- `APP_API_URL_TICKET` / `APP_API_URL_HUMANUSER` / `APP_API_URL_PROJECT` — optional per-plugin overrides; fall back to `APP_API_URL` if unset
 - `SGDAEMON_TICKET_NAME` / `SGDAEMON_TICKET_KEY`
 - `SGDAEMON_HUMANUSER_NAME` / `SGDAEMON_HUMANUSER_KEY`
 - `SGDAEMON_PROJECT_NAME` / `SGDAEMON_PROJECT_KEY`
+
+Tip: the same script name + key works fine in all three `SGDAEMON_*` pairs.
 
 ### 5. Run the daemon
 

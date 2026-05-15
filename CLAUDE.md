@@ -246,9 +246,15 @@ The only two subcommands that mutate SG are `update-ticket-status` and `update-t
 | `ticket_plugin.py` | `Shotgun_Ticket_New/Change/Retirement/Revival` | `/api/sg/sync/task`, `/api/sg/archive/task` |
 | `human_user_plugin.py` | `Shotgun_HumanUser_New/Change/Retirement` | `/api/sg/sync/worker`, `/api/sg/archive/worker` |
 | `project_plugin.py` | `Shotgun_Project_New/Change/Retirement` | `/api/sg/sync/project`, `/api/sg/archive/project` |
-| `sg_common.py` | — | Shared `post_to_app()` helper (retry with 4xx-break) |
+| `sg_common.py` | — | Shared `post_to_app(endpoint, payload, logger, plugin_key=...)` helper (retry with 4xx-break) |
 
 The daemon image (`Dockerfile.daemon`) clones upstream `shotgunEvents` at build time and drops these plugins into `src/`. For bare-metal: users clone `shotgunEvents` themselves and copy plugins in.
+
+**Daemon is a standalone deployment** — it ships in its own compose file (`docker-compose.daemon.yml`), not bundled with the app. This lets one daemon serve multiple consuming apps. The daemon and the app communicate only over HTTP; they share `SG_INTERNAL_SECRET` but otherwise have no coupling.
+
+**Per-plugin URL routing.** `sg_common.post_to_app(plugin_key=...)` resolves the target URL by checking `APP_API_URL_{plugin_key}` first (`APP_API_URL_TICKET`, `APP_API_URL_HUMANUSER`, `APP_API_URL_PROJECT`) and falling back to `APP_API_URL`. Each plugin passes its own key, so a single daemon can route ticket events to app A and project events to app B without code changes. When all three resolve to the same URL (the default), the daemon behaves identically to the old bundled-sidecar setup.
+
+**Per-plugin SG script credentials are independent but optional.** Each plugin reads its own `SGDAEMON_{TICKET,HUMANUSER,PROJECT}_{NAME,KEY}` pair. Using one script for all three is supported — paste the same name + key into all three pairs. Separate scripts are only useful for audit-trail separation.
 
 ### SG API Routes (all in `server/routes.ts`)
 
@@ -324,13 +330,14 @@ Keyword substring match (case-insensitive), first match wins, falls back to `'lo
 
 ## Container Deployment
 
-Two images and a Compose file:
+Two images and two Compose files (operated independently):
 
 - **`Dockerfile`** → `ticket-dep-graph:latest`. Multi-stage build (`builder` compiles frontend + native bindings, `runtime` is `node:20-bookworm-slim` + Python + `shotgun_api3`). Non-root UID 10001. `SERVE_STATIC=1` and `DB_PATH=/data/data.db` baked as defaults. Healthcheck via Node `fetch` on `/api/state`.
 - **`Dockerfile.daemon`** → `ticket-dep-graph-daemon:latest`. `python:3.12-slim-bookworm` base, clones upstream `shotgunEvents` at build time (`SHOTGUNEVENTS_REF` build-arg for pinning), drops the four plugin files into `src/`. Non-root UID 10002. `docker/daemon-entrypoint.sh` renders `shotgunEventDaemon.conf` from env vars via `sed` then `exec`s the daemon so PID 1 is Python.
-- **`docker-compose.yml`** — both services, three named volumes (`tdg-data`, `tdg-logs`, `tdg-daemon-state`), `depends_on: condition: service_healthy` so the daemon waits for the app's healthcheck. The daemon's `APP_API_URL` is overridden to `http://app:3001` for in-cluster DNS.
+- **`docker-compose.yml`** — app only (`app` service, `tdg-data` + `tdg-logs` volumes). Run on the app host with `docker compose up -d --build`.
+- **`docker-compose.daemon.yml`** — daemon only (`sg-event-daemon` service, `tdg-daemon-state` volume). Run on a separate host (or the same host with a different project name) with `docker compose -f docker-compose.daemon.yml up -d --build`. The daemon reaches the app over HTTP via `APP_API_URL` (or the per-plugin `APP_API_URL_*` overrides) — there is no compose network linking them anymore, so the URL **must be resolvable from the daemon host**.
 
-Both images build identically under `docker build` and `podman build` — no BuildKit-only syntax is used. `.gitattributes` forces LF on shell scripts and Dockerfiles to prevent CRLF corruption from Windows clones.
+The compose split means `SG_INTERNAL_SECRET` is the only required-to-match value across `.env` files; everything else is independent. Both images build identically under `docker build` and `podman build` — no BuildKit-only syntax is used. `.gitattributes` forces LF on shell scripts and Dockerfiles to prevent CRLF corruption from Windows clones.
 
 ## Test isolation
 
@@ -352,17 +359,26 @@ ADMIN_PASSWORD=                            # CHANGE — default 'admin2026' is i
 # Outbound SG writes — set to 1 in test/staging/CI/dev pointing at prod SG
 SG_WRITE_DISABLED=
 
-# Shared (app server + daemon plugins)
+# Shared between app .env and daemon .env (must be identical)
 SG_INTERNAL_SECRET=                        # CHANGE — default in source is public
-APP_API_URL=http://localhost:3001          # daemon overrides to http://app:3001 in compose
 VITE_SG_INTERNAL_SECRET=                   # baked into JS bundle at build; equals SG_INTERNAL_SECRET
 
-# Bootstrap script + outbound update-ticket calls
+# App: bootstrap script + outbound update-ticket calls
 SG_URL=https://your-site.shotgrid.autodesk.com
 SCRIPT_NAME=
 API_KEY=
 
-# Daemon-only (one script name+key per plugin from SG admin)
+# Daemon: where to POST events. APP_API_URL is the fallback for all three
+# plugins. Per-plugin overrides let one daemon serve multiple consuming apps —
+# any unset variable falls back to APP_API_URL.
+APP_API_URL=http://localhost:3001
+APP_API_URL_TICKET=                        # optional override (defaults to APP_API_URL)
+APP_API_URL_HUMANUSER=                     # optional override
+APP_API_URL_PROJECT=                       # optional override
+
+# Daemon: SG site that the daemon subscribes to + per-plugin script credentials
+# from SG admin. Same name + key in all three pairs is fine; separate scripts
+# are only useful for per-plugin audit trails.
 SG_ED_SITE_URL=        SG_ED_SCRIPT_NAME=        SG_ED_API_KEY=
 SGDAEMON_TICKET_NAME=  SGDAEMON_TICKET_KEY=
 SGDAEMON_HUMANUSER_NAME=  SGDAEMON_HUMANUSER_KEY=

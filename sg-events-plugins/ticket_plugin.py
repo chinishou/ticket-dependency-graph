@@ -1,43 +1,15 @@
+"""ShotGrid sgEvent daemon plugin — Ticket sync."""
 import os
 import logging
-import requests
-import time
 
 from dotenv import load_dotenv
 load_dotenv()
 
-SG_INTERNAL_SECRET = os.environ.get("SG_INTERNAL_SECRET", "sg-internal-dev-secret")
-APP_API_URL = os.environ.get("APP_API_URL", "http://localhost:3001")
+from sg_common import post_to_app
+
 SG_SITE_URL = os.environ.get("SG_ED_SITE_URL", "https://your-site.shotgrid.autodesk.com")
 
 _logger = None
-
-def _post_to_app(endpoint, payload, retries=3):
-    global _logger
-    url = f"{APP_API_URL}{endpoint}"
-    headers = {
-        "Content-Type": "application/json",
-        "x-sg-secret": SG_INTERNAL_SECRET,
-    }
-    for attempt in range(retries):
-        try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=10)
-            if resp.status_code == 200:
-                if _logger:
-                    _logger.info(f"App API success: {endpoint}")
-                return resp.json()
-            else:
-                if _logger:
-                    _logger.warning(f"App API error {resp.status_code}: {resp.text[:200]}")
-                # Don't retry client errors (except 408 Request Timeout, 429 Too Many Requests)
-                if resp.status_code < 500 and resp.status_code not in (408, 429):
-                    break
-        except requests.RequestException as e:
-            if _logger:
-                _logger.warning(f"App API attempt {attempt+1} failed: {e}")
-            if attempt < retries - 1:
-                time.sleep(1 * (attempt + 1))
-    return None
 
 
 def registerCallbacks(reg):
@@ -130,7 +102,7 @@ def onTicketEvent(sg, logger, event, args):
             return
 
         if event_type == "Shotgun_Ticket_Retirement":
-            result = _post_to_app("/api/sg/archive/task", {"sgTicketId": payload["id"]})
+            result = post_to_app("/api/sg/archive/task", {"sgTicketId": payload["id"]}, logger, plugin_key="TICKET")
             if result:
                 logger.info(f"Archived task for ticket {payload['id']}")
             else:
@@ -138,13 +110,13 @@ def onTicketEvent(sg, logger, event, args):
         elif event_type == "Shotgun_Ticket_Revival":
             # Explicit revival: re-sync with retired=False so the task is un-archived
             payload["retired"] = False
-            result = _post_to_app("/api/sg/sync/task", payload)
+            result = post_to_app("/api/sg/sync/task", payload, logger, plugin_key="TICKET")
             if result:
                 logger.info(f"Revived task for ticket {payload['id']}")
             else:
                 logger.error(f"Failed to revive task for ticket {payload['id']}")
         else:
-            result = _post_to_app("/api/sg/sync/task", payload)
+            result = post_to_app("/api/sg/sync/task", payload, logger, plugin_key="TICKET")
             if result:
                 logger.info(f"Synced task for ticket {payload['id']}")
             else:
