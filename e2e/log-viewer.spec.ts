@@ -40,7 +40,7 @@ test.describe('Log viewer', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'updateTask',
-          taskId: 'task-usd-setup',
+          taskId: 'task-demo-1',
           updates: { status: 'completed' },
           userName: 'Test Worker',
           role: 'admin',

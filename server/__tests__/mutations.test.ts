@@ -99,9 +99,11 @@ describe('mapSgStatusToTaskStatus', () => {
     expect(mapSgStatusToTaskStatus('stop')).toBe('paused');
   });
 
-  it('unknown string falls back to locked', () => {
-    expect(mapSgStatusToTaskStatus('whatever')).toBe('locked');
-    expect(mapSgStatusToTaskStatus('')).toBe('locked');
+  it('unknown string falls back to available', () => {
+    // Default fallback was changed from 'locked' to 'available' so freshly
+    // imported tickets with no dependencies aren't surfaced as locked.
+    expect(mapSgStatusToTaskStatus('whatever')).toBe('available');
+    expect(mapSgStatusToTaskStatus('')).toBe('available');
   });
 });
 

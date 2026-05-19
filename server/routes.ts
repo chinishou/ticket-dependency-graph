@@ -15,7 +15,10 @@ import {
   updateDepartment, updateProject, updateWorker,
   addGoal, removeGoal, addMilestone,
   addTaskToGoal, removeTaskFromGoal, removeMilestoneFromGoal,
+  removeWorker, removeProject, removeDepartment, removeTask, removeMilestone,
+  bulkClearTickets, bulkClearWorkers,
   replaceDepartmentsFromSg,
+  BlockedByReferencesError,
 } from './mutations';
 import type { SgDepartmentPayload } from './mutations';
 import { logger, logMutation, logSgSync, getLogs, clearLogs } from './utils/logger';
@@ -110,6 +113,16 @@ function buildHumanMessage(type: string, body: Record<string, unknown>): string 
       const goalLabel = entityName('goals', (body.goalId ?? '') as string, '');
       return `${user}removed milestone ${msLabel}${goalLabel ? ` from ${goalLabel}` : ''}`;
     }
+    case 'removeWorker':
+      return `${user}deleted ${entityName('workers', id, `worker ${id.slice(0, 8)}`)}`;
+    case 'removeProject':
+      return `${user}deleted ${entityName('projects', id, `project ${id.slice(0, 8)}`)}`;
+    case 'removeDepartment':
+      return `${user}deleted ${entityName('departments', id, `department ${id.slice(0, 8)}`)}`;
+    case 'removeTask':
+      return `${user}deleted ${entityName('tasks', id, `task ${id.slice(0, 8)}`)}`;
+    case 'removeMilestone':
+      return `${user}deleted ${entityName('milestones', id, `milestone ${id.slice(0, 8)}`)}`;
     default:
       return `${user}performed ${type}`;
   }
@@ -182,6 +195,7 @@ const EDITOR_MUTATIONS = new Set([
   'updateTask', 'updateMilestone', 'updateGoal',
   'addGoal', 'removeGoal', 'addMilestone', 'addTaskToGoal', 'removeTaskFromGoal', 'removeMilestoneFromGoal',
   'updateProject', 'updateDepartment', 'updateWorker',
+  'removeWorker', 'removeProject', 'removeDepartment', 'removeTask', 'removeMilestone',
 ]);
 
 // Fields a worker can update on their own tasks
@@ -257,6 +271,21 @@ router.post('/mutations/:type', (req, res) => {
       case 'removeMilestoneFromGoal':
         result = removeMilestoneFromGoal(body.goalId, body.milestoneId);
         break;
+      case 'removeWorker':
+        result = removeWorker(body.entityId as string);
+        break;
+      case 'removeProject':
+        result = removeProject(body.entityId as string);
+        break;
+      case 'removeDepartment':
+        result = removeDepartment(body.entityId as string);
+        break;
+      case 'removeTask':
+        result = removeTask(body.entityId as string);
+        break;
+      case 'removeMilestone':
+        result = removeMilestone(body.entityId as string);
+        break;
       default:
         res.status(400).json({ error: `Unknown mutation type: ${type}` });
         return;
@@ -267,6 +296,10 @@ router.post('/mutations/:type', (req, res) => {
     res.json({ result, entities, lastModified: getLastModified() });
   } catch (err) {
     logMutation(type, body.userName, logId, false, err as Error, humanMessage);
+    if (err instanceof BlockedByReferencesError) {
+      res.status(409).json({ error: err.message, blockers: err.blockers });
+      return;
+    }
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -588,6 +621,51 @@ router.post('/sg/status-map', (req, res) => {
   res.json({ success: true, map: loadSgStatusMap() });
 });
 
+// --- Inbound SG status mapping (SG sg_status_list code → local TaskStatus) ---
+// Stored as { [sgCode]: TaskStatus }. Unmapped codes fall through to keyword
+// matching in mapSgStatusToTaskStatus(); unknown codes default to 'available'.
+
+const ALLOWED_TASK_STATUSES = new Set([
+  'completed', 'in_progress', 'available', 'paused', 'blocked', 'locked',
+]);
+
+function loadInboundStatusMap(): Record<string, string> {
+  const raw = getMeta('sg_status_map_inbound');
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+router.get('/sg/status-map-inbound', (_req, res) => {
+  res.json({ map: loadInboundStatusMap() });
+});
+
+router.post('/sg/status-map-inbound', (req, res) => {
+  const { adminPassword, map } = req.body as { adminPassword?: string; map?: Record<string, string> };
+  if (adminPassword !== ADMIN_PASSWORD) {
+    res.status(403).json({ error: 'Admin password required' });
+    return;
+  }
+  if (!map || typeof map !== 'object') {
+    res.status(400).json({ error: 'map object is required' });
+    return;
+  }
+  // Validate: keys are non-empty SG codes, values are known TaskStatus values.
+  const clean: Record<string, string> = {};
+  for (const [k, v] of Object.entries(map)) {
+    if (typeof k !== 'string' || !k.trim()) continue;
+    if (typeof v !== 'string' || !ALLOWED_TASK_STATUSES.has(v)) continue;
+    clean[k.trim()] = v;
+  }
+  setMeta('sg_status_map_inbound', JSON.stringify(clean));
+  logSgSync('status-map-inbound', 'all', 'sync', true);
+  res.json({ success: true, map: clean });
+});
+
 // Update task status in ShotGrid (tech-tree → SG sync)
 router.post('/sg/update-task-status', requireSgSecret, (req, res) => {
   const { sgTicketId, status } = req.body as { sgTicketId?: number; status?: string };
@@ -872,6 +950,40 @@ router.post('/sg/clear-sg-data', (req, res) => {
   try {
     const result = db.prepare(`DELETE FROM entities WHERE JSON_EXTRACT(data,'$.syncSource')='sg'`).run();
     res.json({ deleted: result.changes, entities: getAllEntities(), lastModified: getLastModified() });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// Bulk wipe of all tickets (or only SG-synced tickets when scope='sg').
+// Drops references in workers/goals/milestones first so the DB never holds
+// dangling task-IDs. Scope 'all' is the default and matches what the user
+// sees in the "Clear all tickets" button.
+router.post('/sg/clear-all-tickets', (req, res) => {
+  const { adminPassword, scope } = req.body as { adminPassword?: string; scope?: 'all' | 'sg' };
+  if (adminPassword !== ADMIN_PASSWORD) {
+    res.status(403).json({ error: 'Admin password required' });
+    return;
+  }
+  try {
+    const deleted = bulkClearTickets({ onlySg: scope === 'sg' });
+    logMutation('bulkClearTickets', undefined, scope ?? 'all', true, undefined, `cleared ${deleted} tickets (scope=${scope ?? 'all'})`);
+    res.json({ deleted, entities: getAllEntities(), lastModified: getLastModified() });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+router.post('/sg/clear-all-workers', (req, res) => {
+  const { adminPassword, scope } = req.body as { adminPassword?: string; scope?: 'all' | 'sg' };
+  if (adminPassword !== ADMIN_PASSWORD) {
+    res.status(403).json({ error: 'Admin password required' });
+    return;
+  }
+  try {
+    const deleted = bulkClearWorkers({ onlySg: scope === 'sg' });
+    logMutation('bulkClearWorkers', undefined, scope ?? 'all', true, undefined, `cleared ${deleted} workers (scope=${scope ?? 'all'})`);
+    res.json({ deleted, entities: getAllEntities(), lastModified: getLastModified() });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

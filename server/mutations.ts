@@ -1,4 +1,4 @@
-import { getEntity, upsertEntity, runTransaction, deleteEntity, db } from './db';
+import { getEntity, upsertEntity, runTransaction, deleteEntity, db, getMeta } from './db';
 
 // Type-safe entity getters with JSON blob pattern
 function getTask(id: string): Record<string, unknown> | null {
@@ -572,14 +572,36 @@ export interface SgTicketPayload {
   retired?: boolean;
 }
 
+// Admin-configured override: { [sgStatusCode]: TaskStatus }. Read from the meta
+// table on every call so changes take effect without a restart. When a code
+// isn't in the user's map we fall back to keyword matching, then to a sensible
+// default. The default is `available` (not `locked`) so freshly imported
+// tickets with no dependencies don't show up as locked out of the box.
+function loadInboundStatusMap(): Record<string, SgTaskStatus> {
+  const raw = getMeta('sg_status_map_inbound');
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, SgTaskStatus>;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 export function mapSgStatusToTaskStatus(sgStatus: string): SgTaskStatus {
-  const s = sgStatus?.toLowerCase() || '';
+  const code = sgStatus?.trim() || '';
+  if (code) {
+    const map = loadInboundStatusMap();
+    const mapped = map[code];
+    if (mapped) return mapped;
+  }
+  const s = code.toLowerCase();
   if (['resolved', 'closed', 'final', 'done', 'complete'].some(v => s.includes(v))) return 'completed';
   if (['in progress', 'in_progress', 'ip', 'working'].some(v => s.includes(v))) return 'in_progress';
   if (['wait', 'ready', 'open', 'new', 'rev'].some(v => s.includes(v))) return 'available';
   if (['block', 'hold'].some(v => s.includes(v))) return 'blocked';
   if (['pause', 'stop'].some(v => s.includes(v))) return 'paused';
-  return 'locked';
+  return 'available';
 }
 
 export function upsertTaskFromSg(payload: SgTicketPayload, goalId = '') {
@@ -1011,5 +1033,330 @@ export function replaceDepartmentsFromSg(departments: SgDepartmentPayload[]) {
     for (const d of departments) {
       upsertDepartmentFromSg(d);
     }
+  });
+}
+
+// === Per-entity deletion with reference checks ===
+//
+// Each remove* function refuses deletion if *any* other entity still references
+// it, returning the list of blockers so the UI can tell the user what they need
+// to detach first. The bulk clear endpoints in routes.ts skip these checks
+// (everything is going at once, so cross-references are cleaned implicitly).
+
+export class BlockedByReferencesError extends Error {
+  blockers: string[];
+  constructor(blockers: string[]) {
+    super(`Cannot delete: still referenced by ${blockers.length} entit${blockers.length === 1 ? 'y' : 'ies'}`);
+    this.name = 'BlockedByReferencesError';
+    this.blockers = blockers;
+  }
+}
+
+function readAll(table: string): Array<{ id: string; data: Record<string, unknown> }> {
+  const rows = db.prepare(`SELECT id, data FROM entities WHERE table_name=?`).all(table) as { id: string; data: string }[];
+  return rows.map(r => ({ id: r.id, data: JSON.parse(r.data) as Record<string, unknown> }));
+}
+
+function label(table: string, id: string): string {
+  const e = getEntity(table, id) as { name?: string } | null;
+  return e?.name ? `${e.name}` : id;
+}
+
+export function removeWorker(workerId: string) {
+  return runTransaction(() => {
+    const worker = getEntity('workers', workerId) as Record<string, unknown> | null;
+    if (!worker) return { deleted: false };
+
+    const blockers: string[] = [];
+    // Block if any task has this worker assigned
+    for (const t of readAll('tasks')) {
+      const assigned = (t.data.assignedWorkerIds as string[] | undefined) ?? [];
+      if (assigned.includes(workerId)) {
+        blockers.push(`task "${label('tasks', t.id)}" has this worker assigned`);
+      }
+    }
+    if (blockers.length > 0) throw new BlockedByReferencesError(blockers);
+
+    // Detach from department's workerIds
+    const deptId = worker.departmentId as string | undefined;
+    if (deptId) {
+      const dept = getDepartment(deptId);
+      if (dept) {
+        upsertEntity('departments', deptId, {
+          ...dept,
+          workerIds: arrayRemove((dept.workerIds as string[]) || [], workerId),
+        });
+      }
+    }
+    deleteEntity('workers', workerId);
+    return { deleted: true };
+  });
+}
+
+export function removeProject(projectId: string) {
+  return runTransaction(() => {
+    const project = getProject(projectId);
+    if (!project) return { deleted: false };
+
+    const blockers: string[] = [];
+    for (const g of readAll('goals')) {
+      if (g.data.parentType === 'project' && g.data.parentId === projectId) {
+        blockers.push(`goal "${label('goals', g.id)}" is parented to this project`);
+      } else if (g.data.projectId === projectId) {
+        blockers.push(`goal "${label('goals', g.id)}" cross-references this project`);
+      }
+    }
+    for (const t of readAll('tasks')) {
+      const related = (t.data.relatedProjectIds as string[] | undefined) ?? [];
+      if (related.includes(projectId)) {
+        blockers.push(`task "${label('tasks', t.id)}" is related to this project`);
+      }
+    }
+    if (blockers.length > 0) throw new BlockedByReferencesError(blockers);
+
+    deleteEntity('projects', projectId);
+    return { deleted: true };
+  });
+}
+
+export function removeDepartment(deptId: string) {
+  return runTransaction(() => {
+    const dept = getDepartment(deptId);
+    if (!dept) return { deleted: false };
+
+    const blockers: string[] = [];
+    for (const w of readAll('workers')) {
+      if (w.data.departmentId === deptId) {
+        blockers.push(`worker "${label('workers', w.id)}" belongs to this department`);
+      }
+    }
+    for (const g of readAll('goals')) {
+      if (g.data.parentType === 'department' && g.data.parentId === deptId) {
+        blockers.push(`goal "${label('goals', g.id)}" is parented to this department`);
+      } else if (g.data.departmentId === deptId) {
+        blockers.push(`goal "${label('goals', g.id)}" cross-references this department`);
+      }
+    }
+    for (const t of readAll('tasks')) {
+      if (t.data.contributingDepartmentId === deptId) {
+        blockers.push(`task "${label('tasks', t.id)}" contributes to this department`);
+      }
+      const related = (t.data.relatedDepartmentIds as string[] | undefined) ?? [];
+      if (related.includes(deptId)) {
+        blockers.push(`task "${label('tasks', t.id)}" is related to this department`);
+      }
+    }
+    for (const p of readAll('projects')) {
+      const contrib = (p.data.contributingDepartmentIds as string[] | undefined) ?? [];
+      if (contrib.includes(deptId)) {
+        blockers.push(`project "${label('projects', p.id)}" lists this department as a contributor`);
+      }
+    }
+    if (blockers.length > 0) throw new BlockedByReferencesError(blockers);
+
+    deleteEntity('departments', deptId);
+    return { deleted: true };
+  });
+}
+
+export function removeTask(taskId: string) {
+  return runTransaction(() => {
+    const task = getTask(taskId);
+    if (!task) return { deleted: false };
+
+    const blockers: string[] = [];
+    // Block if any worker has it assigned (active or queued)
+    for (const w of readAll('workers')) {
+      const assigned = (w.data.assignedTaskIds as string[] | undefined) ?? [];
+      const active = (w.data.activeTaskIds as string[] | undefined) ?? [];
+      if (assigned.includes(taskId) || active.includes(taskId)) {
+        blockers.push(`worker "${label('workers', w.id)}" has this task assigned`);
+      }
+    }
+    // Block if any downstream task/milestone depends on it
+    const unlocksTasks = (task.unlocksTaskIds as string[] | undefined) ?? [];
+    for (const otherId of unlocksTasks) {
+      const other = getTask(otherId);
+      if (other) blockers.push(`task "${other.name as string ?? otherId}" depends on this task`);
+    }
+    const unlocksMs = (task.unlocksMilestoneIds as string[] | undefined) ?? [];
+    for (const msId of unlocksMs) {
+      const ms = getMilestone(msId);
+      if (ms) blockers.push(`milestone "${ms.name as string ?? msId}" requires this task`);
+    }
+    if (blockers.length > 0) throw new BlockedByReferencesError(blockers);
+
+    // Remove from goal's taskIds
+    const goalId = task.goalId as string | undefined;
+    if (goalId) {
+      const goal = getGoal(goalId);
+      if (goal) {
+        upsertEntity('goals', goalId, {
+          ...goal,
+          taskIds: arrayRemove((goal.taskIds as string[]) || [], taskId),
+        });
+      }
+    }
+    // Clear reverse deps on upstream tasks
+    const dependsOn = (task.dependsOnTaskIds as string[] | undefined) ?? [];
+    for (const upId of dependsOn) {
+      const up = getTask(upId);
+      if (up) {
+        upsertEntity('tasks', upId, {
+          ...up,
+          unlocksTaskIds: arrayRemove((up.unlocksTaskIds as string[]) || [], taskId),
+        });
+      }
+    }
+    const dependsOnMs = (task.dependsOnMilestoneIds as string[] | undefined) ?? [];
+    for (const msId of dependsOnMs) {
+      const ms = getMilestone(msId);
+      if (ms) {
+        upsertEntity('milestones', msId, {
+          ...ms,
+          unlocksTaskIds: arrayRemove((ms.unlocksTaskIds as string[]) || [], taskId),
+        });
+      }
+    }
+    deleteEntity('tasks', taskId);
+    return { deleted: true };
+  });
+}
+
+export function removeMilestone(milestoneId: string) {
+  return runTransaction(() => {
+    const ms = getMilestone(milestoneId);
+    if (!ms) return { deleted: false };
+
+    const blockers: string[] = [];
+    // Block if any task/milestone depends on it
+    const unlocksTasks = (ms.unlocksTaskIds as string[] | undefined) ?? [];
+    for (const tId of unlocksTasks) {
+      const t = getTask(tId);
+      if (t) blockers.push(`task "${t.name as string ?? tId}" depends on this milestone`);
+    }
+    const unlocksMs = (ms.unlocksMilestoneIds as string[] | undefined) ?? [];
+    for (const mId of unlocksMs) {
+      const m = getMilestone(mId);
+      if (m) blockers.push(`milestone "${m.name as string ?? mId}" requires this milestone`);
+    }
+    if (blockers.length > 0) throw new BlockedByReferencesError(blockers);
+
+    // Remove from parent goal/project milestoneIds
+    const parentType = ms.parentType as string;
+    const parentId = ms.parentId as string;
+    if (parentType === 'goal' && parentId) {
+      const goal = getGoal(parentId);
+      if (goal) {
+        upsertEntity('goals', parentId, {
+          ...goal,
+          milestoneIds: arrayRemove((goal.milestoneIds as string[]) || [], milestoneId),
+        });
+      }
+    } else if (parentType === 'project' && parentId) {
+      const proj = getProject(parentId);
+      if (proj) {
+        upsertEntity('projects', parentId, {
+          ...proj,
+          milestoneIds: arrayRemove((proj.milestoneIds as string[]) || [], milestoneId),
+        });
+      }
+    }
+    // Clear reverse links on required tasks/milestones
+    const reqTasks = (ms.requiredTaskIds as string[] | undefined) ?? [];
+    for (const tId of reqTasks) {
+      const t = getTask(tId);
+      if (t) {
+        upsertEntity('tasks', tId, {
+          ...t,
+          unlocksMilestoneIds: arrayRemove((t.unlocksMilestoneIds as string[]) || [], milestoneId),
+        });
+      }
+    }
+    const reqMs = (ms.requiredMilestoneIds as string[] | undefined) ?? [];
+    for (const mId of reqMs) {
+      const m = getMilestone(mId);
+      if (m) {
+        upsertEntity('milestones', mId, {
+          ...m,
+          unlocksMilestoneIds: arrayRemove((m.unlocksMilestoneIds as string[]) || [], milestoneId),
+        });
+      }
+    }
+    deleteEntity('milestones', milestoneId);
+    return { deleted: true };
+  });
+}
+
+// === Bulk clear (admin) ===
+//
+// These wipe a whole table (optionally only SG-synced rows) and tidy up
+// dangling refs in cousin tables. They intentionally skip the per-entity
+// reference checks above because by definition everything is going.
+
+export function bulkClearTickets(opts: { onlySg?: boolean } = {}): number {
+  const onlySg = opts.onlySg ?? false;
+  return runTransaction(() => {
+    const tasks = readAll('tasks');
+    const targets = onlySg ? tasks.filter(t => t.data.syncSource === 'sg') : tasks;
+    const targetIds = new Set(targets.map(t => t.id));
+    if (targetIds.size === 0) return 0;
+
+    // Strip from workers
+    for (const w of readAll('workers')) {
+      const active = ((w.data.activeTaskIds as string[]) || []).filter(id => !targetIds.has(id));
+      const assigned = ((w.data.assignedTaskIds as string[]) || []).filter(id => !targetIds.has(id));
+      if (active.length !== ((w.data.activeTaskIds as string[]) || []).length
+        || assigned.length !== ((w.data.assignedTaskIds as string[]) || []).length) {
+        upsertEntity('workers', w.id, { ...w.data, activeTaskIds: active, assignedTaskIds: assigned });
+      }
+    }
+    // Strip from goals
+    for (const g of readAll('goals')) {
+      const taskIds = ((g.data.taskIds as string[]) || []).filter(id => !targetIds.has(id));
+      if (taskIds.length !== ((g.data.taskIds as string[]) || []).length) {
+        upsertEntity('goals', g.id, { ...g.data, taskIds });
+      }
+    }
+    // Strip task-IDs from milestones' requiredTaskIds
+    for (const m of readAll('milestones')) {
+      const req = ((m.data.requiredTaskIds as string[]) || []).filter(id => !targetIds.has(id));
+      const unl = ((m.data.unlocksTaskIds as string[]) || []).filter(id => !targetIds.has(id));
+      if (req.length !== ((m.data.requiredTaskIds as string[]) || []).length
+        || unl.length !== ((m.data.unlocksTaskIds as string[]) || []).length) {
+        upsertEntity('milestones', m.id, { ...m.data, requiredTaskIds: req, unlocksTaskIds: unl });
+      }
+    }
+    // Drop the tasks
+    for (const id of targetIds) deleteEntity('tasks', id);
+    return targetIds.size;
+  });
+}
+
+export function bulkClearWorkers(opts: { onlySg?: boolean } = {}): number {
+  const onlySg = opts.onlySg ?? false;
+  return runTransaction(() => {
+    const workers = readAll('workers');
+    const targets = onlySg ? workers.filter(w => w.data.syncSource === 'sg') : workers;
+    const targetIds = new Set(targets.map(w => w.id));
+    if (targetIds.size === 0) return 0;
+
+    // Strip from tasks
+    for (const t of readAll('tasks')) {
+      const assigned = ((t.data.assignedWorkerIds as string[]) || []).filter(id => !targetIds.has(id));
+      if (assigned.length !== ((t.data.assignedWorkerIds as string[]) || []).length) {
+        upsertEntity('tasks', t.id, { ...t.data, assignedWorkerIds: assigned });
+      }
+    }
+    // Strip from departments
+    for (const d of readAll('departments')) {
+      const workerIds = ((d.data.workerIds as string[]) || []).filter(id => !targetIds.has(id));
+      if (workerIds.length !== ((d.data.workerIds as string[]) || []).length) {
+        upsertEntity('departments', d.id, { ...d.data, workerIds });
+      }
+    }
+    // Drop the workers
+    for (const id of targetIds) deleteEntity('workers', id);
+    return targetIds.size;
   });
 }
