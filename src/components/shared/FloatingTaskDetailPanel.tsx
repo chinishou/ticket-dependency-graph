@@ -144,7 +144,7 @@ export function FloatingTaskDetailPanel({ onGoToTechTree, onClose }: FloatingTas
               gap: 6,
             }}
           >
-            View in Tech Tree
+            View in Dependency Graph
           </button>
         </div>
       )}

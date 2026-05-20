@@ -18,6 +18,13 @@ export function SettingsSgSync({ adminPassword }: Props) {
   const [sgStatus, setSgStatus] = useState<SgStatus | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Shared state between the Projects card and the Tickets card. The Projects
+  // card writes its selected SG project statuses here; the Tickets card reads
+  // them and resolves the matching SG project IDs at import time. This is what
+  // makes the Tickets card import "only the projects currently being imported"
+  // without the user having to maintain two parallel checklists.
+  const [projectStatusFilter, setProjectStatusFilter] = useState<Set<string>>(new Set());
+
   const loadStatus = async () => {
     try {
       const res = await fetch('/api/sg/status');
@@ -85,6 +92,7 @@ export function SettingsSgSync({ adminPassword }: Props) {
           statusType="projectStatuses"
           adminPassword={adminPassword}
           onSync={runSync}
+          onSelectedStatusesChange={setProjectStatusFilter}
         />
         <EntitySyncCard
           label="Departments"
@@ -102,10 +110,11 @@ export function SettingsSgSync({ adminPassword }: Props) {
         />
         <EntitySyncCard
           label="Tickets"
-          description="Select which ticket statuses to import. Optionally restrict to specific SG projects."
+          description="Select which ticket statuses to import. The project picker lists only projects matching the Projects card status filter — click ↻ Refresh after changing the filter to re-fetch, then deselect specific projects you don't want."
           entity="tickets"
           statusType="ticketStatuses"
           projectFilter
+          inheritedProjectStatusFilter={projectStatusFilter}
           adminPassword={adminPassword}
           onSync={runSync}
           extra={<ResyncByIdRow adminPassword={adminPassword} />}
@@ -194,6 +203,51 @@ function BulkClearCard({ kind, title, description, onDone }: {
 }
 
 // ---------------------------------------------------------------------------
+// Default status selections
+// ---------------------------------------------------------------------------
+//
+// The user almost always wants to filter SG status on import — importing every
+// resolved/omitted/archived row creates noise that has to be cleaned up later.
+// These defaults pre-select the most-useful subset; the user can still tick or
+// untick any individual code before hitting Import.
+
+/** Project statuses: only Active + Internal by default. Matched case-insensitively
+ * since SG sites vary on whether they return short codes ('act', 'int') or
+ * display labels ('Active', 'Internal'). */
+const PROJECT_STATUS_DEFAULTS = ['active', 'internal', 'act', 'int'];
+
+/** Ticket statuses: ALL except 'omt' (omit) and 'res' (resolved). Tickets in
+ * those states are usually noise for the dependency graph view. */
+const TICKET_STATUS_EXCLUDE = ['omt', 'res'];
+
+function defaultSelectedStatuses(
+  statusType: 'projectStatuses' | 'ticketStatuses' | undefined,
+  available: string[],
+): string[] {
+  if (!statusType) return available;
+  if (statusType === 'projectStatuses') {
+    const wanted = new Set(PROJECT_STATUS_DEFAULTS);
+    const matched = available.filter((s) => wanted.has(s.toLowerCase()));
+    // If nothing matched (unusual SG configuration), fall back to all-selected
+    // so the user still gets a usable starting point.
+    return matched.length > 0 ? matched : available;
+  }
+  // ticketStatuses — invert: exclude the noisy codes
+  const exclude = new Set(TICKET_STATUS_EXCLUDE);
+  return available.filter((s) => !exclude.has(s.toLowerCase()));
+}
+
+/** Filter the SG project list down to those whose `sg_status` is in `statuses`.
+ * Used by the Tickets card to derive its project-id list from the Projects
+ * card's status selection. Empty input set → no projects match (sync runs
+ * unbounded only if every project is selected, which can't happen via this
+ * code path). */
+function matchProjectsByStatus(projects: SgProjectOption[], statuses: Set<string>): SgProjectOption[] {
+  if (statuses.size === 0) return [];
+  return projects.filter((p) => p.sg_status && statuses.has(p.sg_status));
+}
+
+// ---------------------------------------------------------------------------
 // EntitySyncCard — handles status-filter flow + sync for one entity type
 // ---------------------------------------------------------------------------
 
@@ -210,12 +264,27 @@ interface EntitySyncCardProps {
   statusType?: 'projectStatuses' | 'ticketStatuses';
   /** Show a project allow-list filter (currently only meaningful for tickets). */
   projectFilter?: boolean;
+  /**
+   * When provided, the per-project picker is hidden and project IDs to import
+   * are derived at import time by filtering the fetched SG project list by
+   * sg_status ∈ this set. Used by the Tickets card so the user only picks
+   * project statuses once (on the Projects card) and the Tickets card stays
+   * in sync automatically.
+   */
+  inheritedProjectStatusFilter?: Set<string>;
+  /** Optional listener — fires whenever the user toggles a status chip. Lets
+   * a parent component lift this card's selection into shared state. */
+  onSelectedStatusesChange?: (statuses: Set<string>) => void;
   adminPassword: string;
   onSync: (entity: string, statuses?: string[], projectIds?: number[]) => Promise<{ success: boolean; output?: string; error?: string }>;
   extra?: React.ReactNode;
 }
 
-function EntitySyncCard({ label, description, entity, statusType, projectFilter, adminPassword, onSync, extra }: EntitySyncCardProps) {
+function EntitySyncCard({
+  label, description, entity, statusType, projectFilter,
+  inheritedProjectStatusFilter, onSelectedStatusesChange,
+  adminPassword, onSync, extra,
+}: EntitySyncCardProps) {
   const [loadingStatuses, setLoadingStatuses] = useState(false);
   const [availableStatuses, setAvailableStatuses] = useState<string[] | null>(null); // null = not yet loaded
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
@@ -248,7 +317,9 @@ function EntitySyncCard({ label, description, entity, statusType, projectFilter,
       if (!res.ok) throw new Error(data.error || 'Failed to fetch statuses');
       const statuses: string[] = data[statusType!] || [];
       setAvailableStatuses(statuses);
-      setSelectedStatuses(new Set(statuses)); // default: all selected
+      const initial = new Set(defaultSelectedStatuses(statusType, statuses));
+      setSelectedStatuses(initial);
+      onSelectedStatusesChange?.(initial);
     } catch (e) {
       setError(String(e));
       setAvailableStatuses([]);
@@ -269,9 +340,24 @@ function EntitySyncCard({ label, description, entity, statusType, projectFilter,
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch projects');
       const projects: SgProjectOption[] = data.projects || [];
-      setAvailableProjects(projects);
-      // Default: all selected. Empty = unbounded (server passes no --project-ids).
-      setSelectedProjectIds(new Set(projects.map((p) => p.id)));
+      // Two behaviours depending on whether a parent status filter is wired in:
+      //   - Inherited (Tickets card): narrow the *visible* project list to
+      //     those whose sg_status matches the parent's selection, then
+      //     pre-select ALL of them. The user can deselect individual chips
+      //     to further narrow.
+      //   - Standalone (Projects card or other): show every SG project as a
+      //     chip; pre-select Active + Internal as a default.
+      if (inheritedProjectStatusFilter) {
+        const visible = matchProjectsByStatus(projects, inheritedProjectStatusFilter);
+        setAvailableProjects(visible);
+        setSelectedProjectIds(new Set(visible.map((p) => p.id)));
+      } else {
+        setAvailableProjects(projects);
+        const wanted = new Set(PROJECT_STATUS_DEFAULTS);
+        const preferred = projects.filter((p) => p.sg_status && wanted.has(p.sg_status.toLowerCase()));
+        const initial = preferred.length > 0 ? preferred : projects;
+        setSelectedProjectIds(new Set(initial.map((p) => p.id)));
+      }
     } catch (e) {
       setError(String(e));
       setAvailableProjects([]);
@@ -280,15 +366,21 @@ function EntitySyncCard({ label, description, entity, statusType, projectFilter,
     }
   };
 
+  // Note: we intentionally do NOT auto-resync the project list when the parent
+  // card's status filter changes. The user may have already manually
+  // deselected specific chips after the initial seed; auto-syncing would
+  // clobber that. Hitting ↻ Refresh explicitly re-fetches with the parent's
+  // current filter applied.
+
   const runSync = async () => {
     setRunning(true);
     setOutput('');
     setError('');
     setResultPhase('none');
     const statuses = statusType ? Array.from(selectedStatuses) : undefined;
-    // Only pass projectIds when filter is active AND user has narrowed the set —
-    // if everything is selected, leave it unbounded so future SG projects are
-    // included automatically.
+    // Only pass projectIds when the user has narrowed the set — if every
+    // available project is selected, leave unbounded so newly-created SG
+    // projects flow into future imports automatically.
     const projectIds = projectFilter && availableProjects && selectedProjectIds.size < availableProjects.length
       ? Array.from(selectedProjectIds)
       : undefined;
@@ -307,6 +399,7 @@ function EntitySyncCard({ label, description, entity, statusType, projectFilter,
     setSelectedStatuses(prev => {
       const next = new Set(prev);
       if (next.has(s)) next.delete(s); else next.add(s);
+      onSelectedStatusesChange?.(next);
       return next;
     });
   };
@@ -393,10 +486,14 @@ function EntitySyncCard({ label, description, entity, statusType, projectFilter,
         </div>
       )}
 
-      {/* Project allow-list for entities (currently only tickets). When all
-          projects are selected, no filter is sent — equivalent to "no project
-          restriction". When you narrow the set, only tickets in those SG
-          projects are imported. */}
+      {/* Project allow-list. Always shows the per-project chip picker so the
+          user can hand-pick projects. When `inheritedProjectStatusFilter` is
+          supplied (Tickets card), the initial seed + the ↻ Refresh action
+          select only those projects whose sg_status matches the parent
+          card's selected statuses. Without it (standalone Projects picker),
+          the seed is Active + Internal by default. After the seed lands the
+          user is free to toggle individual chips; the auto-seed never runs
+          again until the user explicitly hits ↻ Refresh. */}
       {projectFilter && (
         <div style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -407,9 +504,11 @@ function EntitySyncCard({ label, description, entity, statusType, projectFilter,
                 : availableProjects === null
                   ? 'Not loaded'
                   : availableProjects.length === 0
-                    ? 'No projects in SG'
+                    ? (inheritedProjectStatusFilter !== undefined
+                        ? 'No projects match Projects card status filter'
+                        : 'No projects in SG')
                     : selectedProjectIds.size === availableProjects.length
-                      ? `All ${availableProjects.length} (no project filter applied)`
+                      ? `All ${availableProjects.length}${inheritedProjectStatusFilter !== undefined ? ' (matching Projects card status filter)' : ' (no project filter applied)'}`
                       : `${selectedProjectIds.size} / ${availableProjects.length} selected`}
             </span>
             <button onClick={selectAllProjects} disabled={loadingProjects || !availableProjects?.length}
@@ -424,6 +523,9 @@ function EntitySyncCard({ label, description, entity, statusType, projectFilter,
               onClick={fetchProjects}
               disabled={loadingProjects}
               style={{ ...secondaryBtnStyle, padding: '3px 8px', fontSize: 11 }}
+              title={inheritedProjectStatusFilter !== undefined
+                ? 'Re-fetch SG projects and re-seed selection from the Projects card status filter'
+                : 'Re-fetch SG projects'}
             >
               {loadingProjects ? <span style={{ ...spinnerStyle, width: 10, height: 10 }} /> : '↻ Refresh'}
             </button>

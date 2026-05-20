@@ -572,19 +572,38 @@ export interface SgTicketPayload {
   retired?: boolean;
 }
 
-// Admin-configured override: { [sgStatusCode]: TaskStatus }. Read from the meta
-// table on every call so changes take effect without a restart. When a code
-// isn't in the user's map we fall back to keyword matching, then to a sensible
-// default. The default is `available` (not `locked`) so freshly imported
-// tickets with no dependencies don't show up as locked out of the box.
+// Code-level defaults for the inbound SG-code → TaskStatus mapping. Kept in
+// sync with DEFAULT_SG_STATUS_MAP_INBOUND in server/routes.ts; the defaults
+// here exist so this module doesn't have to import from routes (the import
+// would be circular: routes.ts already imports mapSgStatusToTaskStatus).
+const DEFAULT_INBOUND_MAP: Record<string, SgTaskStatus> = {
+  res:  'completed',
+  ip:   'in_progress',
+  cdrv: 'in_progress',
+  kckb: 'in_progress',
+  rev:  'in_progress',
+  wfb:  'in_progress',
+  rdy:  'available',
+  tri:  'available',
+  bkd:  'blocked',
+  hld:  'paused',
+  opn:  'locked',
+  omt:  'locked',
+};
+
+// Read on every call so admin edits take effect without a restart. User
+// overrides merge on top of defaults; codes still missing fall through to
+// keyword matching below, and finally default to 'available' so freshly
+// imported tickets with no dependencies don't surface as locked.
 function loadInboundStatusMap(): Record<string, SgTaskStatus> {
   const raw = getMeta('sg_status_map_inbound');
-  if (!raw) return {};
+  if (!raw) return { ...DEFAULT_INBOUND_MAP };
   try {
     const parsed = JSON.parse(raw) as Record<string, SgTaskStatus>;
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_INBOUND_MAP };
+    return { ...DEFAULT_INBOUND_MAP, ...parsed };
   } catch {
-    return {};
+    return { ...DEFAULT_INBOUND_MAP };
   }
 }
 

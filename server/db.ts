@@ -4,6 +4,7 @@ import path from 'path';
 import {
   company, departments, projects, goals, tasks, milestones, workers,
 } from '../src/data/mockData';
+import type { Worker } from '../src/types';
 import { logger } from './utils/logger';
 
 const DB_PATH = process.env.DB_PATH ?? path.join(import.meta.dirname, '..', 'data.db');
@@ -72,6 +73,7 @@ function touchLastModified() {
 const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as { c: number };
 if (count.c === 0 && process.env.NODE_ENV !== 'test') {
   const insert = db.prepare('INSERT INTO entities (table_name, id, data) VALUES (?, ?, ?)');
+  const insertUser = db.prepare('INSERT OR IGNORE INTO users (name, role) VALUES (?, ?)');
   const seedAll = db.transaction(() => {
     // Company
     insert.run('companies', company.id, JSON.stringify(company));
@@ -85,8 +87,13 @@ if (count.c === 0 && process.env.NODE_ENV !== 'test') {
     for (const t of tasks) insert.run('tasks', t.id, JSON.stringify(t));
     // Milestones
     for (const m of milestones) insert.run('milestones', m.id, JSON.stringify(m));
-    // Workers
-    for (const w of workers) insert.run('workers', w.id, JSON.stringify(w));
+    // Workers — also register them in the users table so the login page shows
+    // their role badge and EDITOR_MUTATIONS can verify role from the DB.
+    for (const w of workers) {
+      insert.run('workers', w.id, JSON.stringify(w));
+      const role = (w as Worker & { role?: 'worker' | 'coordinator' }).role ?? 'worker';
+      insertUser.run(w.name, role);
+    }
   });
   seedAll();
   logger.info('Database seeded with mock data');

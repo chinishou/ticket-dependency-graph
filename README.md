@@ -1,10 +1,10 @@
 # Ticket Dependency Graph
 
-A game-inspired tech tree UI for managing VFX production tasks, goals, milestones, and workers across departments and projects.
+A directed-graph UI for managing VFX production tasks, goals, milestones, and workers across departments and projects.
 
 ## Features
 
-- **Tech Tree View** — React Flow-based directed acyclic graph with dagre auto-layout, custom task/milestone nodes, dependency visualization, and unplaced-task bucket for SG-imported tasks awaiting goal assignment
+- **Dependency Graph View** — React Flow-based directed acyclic graph with dagre auto-layout, custom task/milestone nodes, dependency visualization, and unplaced-task bucket for SG-imported tasks awaiting goal assignment
 - **Dashboard** — Drill-down company overview with project/department cards, progress stats, and inline priority controls (P1/P2/P3)
 - **Timeline** — Custom Gantt chart with dependency-based date scheduling, month axis, and today marker
 - **Workers** — Worker list by department with active tasks, unlocks, and priority-sorted queue

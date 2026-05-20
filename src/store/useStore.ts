@@ -122,6 +122,8 @@ interface AppState {
   // Bulk clears (admin-only)
   bulkClearTickets: (scope?: 'all' | 'sg') => Promise<{ success: boolean; deleted?: number; error?: string }>;
   bulkClearWorkers: (scope?: 'all' | 'sg') => Promise<{ success: boolean; deleted?: number; error?: string }>;
+  // Studio / Company name (admin-only)
+  setCompanyName: (name: string) => Promise<{ success: boolean; error?: string }>;
 
   // Data loading
   fetchState: () => Promise<void>;
@@ -240,12 +242,12 @@ export const useStore = create<AppState>((set, get) => ({
   // Hardcoded fallback — kept in sync with DEFAULT_SG_STATUS_MAP in server/routes.ts.
   // Replaced by the server-stored map after loadSgStatusMap() completes.
   sgStatusMap: {
-    completed: 'res',
+    completed:   'res',
     in_progress: 'ip',
-    available: 'opn',
-    blocked: 'hold',
-    paused: 'wtg',
-    locked: 'opn',
+    available:   'rdy',
+    blocked:     'bkd',
+    paused:      'hld',
+    locked:      'opn',
   },
 
   userName: (() => {
@@ -1115,6 +1117,26 @@ export const useStore = create<AppState>((set, get) => ({
         set({ ...applyEntities(data.entities), lastModified: data.lastModified });
       }
       return { success: true, deleted: data.deleted };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
+  },
+
+  setCompanyName: async (name) => {
+    const pwd = get().adminPassword;
+    if (!pwd) return { success: false, error: 'Admin password required' };
+    try {
+      const res = await fetch('/api/company/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword: pwd, name }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+      if (data.entities) {
+        set({ ...applyEntities(data.entities), lastModified: data.lastModified });
+      }
+      return { success: true };
     } catch (e) {
       return { success: false, error: String(e) };
     }
