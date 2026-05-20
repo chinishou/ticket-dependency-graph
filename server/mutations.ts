@@ -70,6 +70,17 @@ function ensureCompany(name: string) {
   return created;
 }
 
+// Build the "Open in ShotGrid" URL for a ticket. Reads SG_URL from the env at
+// call time so changing the .env and restarting the container takes effect
+// without recompiling, and so test environments pointed at a different SG site
+// produce the correct deep-links. Returns undefined when SG_URL isn't set,
+// in which case the UI falls back to a plain "#NNN" label with no link.
+function sgTicketUrl(ticketId: number): string | undefined {
+  const base = (process.env.SG_URL || '').trim().replace(/\/+$/, '');
+  if (!base) return undefined;
+  return `${base}/tickets/${ticketId}`;
+}
+
 // --- Port of Zustand mutation logic to server-side with SQLite transactions ---
 
 export function updateTask(taskId: string, updates: Record<string, unknown>) {
@@ -674,7 +685,7 @@ export function upsertTaskFromSg(payload: SgTicketPayload, goalId = '') {
       description: extractSgTicketDescription(payload.description || ''),
       status: mapSgStatusToTaskStatus(payload.sgStatus || ''),
       ticketId: payload.id.toString(),
-      ticketUrl: payload.project ? `https://wei-dev.shotgrid.autodesk.com/tickets/${payload.id}` : undefined,
+      ticketUrl: payload.project ? sgTicketUrl(payload.id) : undefined,
       sgTicketId: payload.id,
       sgProjectId: payload.project?.id,
       sgProjectName: payload.project?.name,
