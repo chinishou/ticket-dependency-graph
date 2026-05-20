@@ -300,7 +300,7 @@ function App() {
               Goal Map
             </button>
           )}
-          {topView === 'A' && (
+          {topView === 'A' && subViewA === 'goal-map' && (
             <ParentDropdown
               parentType={goalMapParentType}
               parentId={goalMapParentId}
