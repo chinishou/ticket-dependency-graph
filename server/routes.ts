@@ -941,6 +941,27 @@ router.post('/sg/trigger-bootstrap', (req, res) => {
   );
 });
 
+// Set the Studio / Company name shown in the top-left header. Admin-only.
+// Reuses the same code path as SG bootstrap so the result is identical whether
+// the name comes from the Settings input or from a fresh SG site import.
+router.post('/company/name', (req, res) => {
+  const { adminPassword, name } = req.body as { adminPassword?: string; name?: string };
+  if (adminPassword !== ADMIN_PASSWORD) {
+    res.status(403).json({ error: 'Admin password required' });
+    return;
+  }
+  if (typeof name !== 'string' || !name.trim()) {
+    res.status(400).json({ error: 'name is required' });
+    return;
+  }
+  try {
+    const company = setSgSiteName(name.trim());
+    res.json({ success: true, company, entities: getAllEntities(), lastModified: getLastModified() });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 router.post('/sg/clear-sg-data', (req, res) => {
   const { adminPassword } = req.body as { adminPassword?: string };
   if (adminPassword !== ADMIN_PASSWORD) {

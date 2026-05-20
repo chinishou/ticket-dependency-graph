@@ -11,7 +11,7 @@ interface ViewSwitcherProps {
 
 const allViews: { key: TopView; label: string }[] = [
   { key: 'F', label: 'My Tasks' },
-  { key: 'A', label: 'Tech Tree' },
+  { key: 'A', label: 'Dependency Graph' },
   { key: 'B', label: 'Dashboard' },
   { key: 'C', label: 'Timeline' },
   { key: 'D', label: 'Workers' },

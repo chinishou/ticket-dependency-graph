@@ -26,12 +26,12 @@ export function AppShell({ children, breadcrumbs, title, rightContent }: AppShel
       >
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 16 }}>
-          <span style={{ fontSize: 18 }}>🌳</span>
+          <span style={{ fontSize: 18 }}>🕸️</span>
           <span style={{
             fontSize: 14, fontWeight: 700, color: 'var(--color-accent)', letterSpacing: '-0.02em',
             textShadow: '0 0 12px rgba(56, 189, 248, 0.4)',
           }}>
-            Tech Tree
+            Ticket Dependency Graph
           </span>
         </div>
 

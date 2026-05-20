@@ -155,7 +155,10 @@ export const milestones: Milestone[] = [
 ];
 
 // === Workers ===
-export const workers: Worker[] = [
+// `role` here is consumed by the seed code in server/db.ts which populates the
+// `users` table on first boot. SG-synced workers get their role from
+// `upsertWorkerFromSg`; for the demo seed we set it explicitly per worker.
+export const workers: (Worker & { role?: 'worker' | 'coordinator' })[] = [
   {
     id: 'w-demo-1',
     name: 'Demo User One',
@@ -164,6 +167,7 @@ export const workers: Worker[] = [
     assignedTaskIds: ['task-demo-2'],
     availability: 'full',
     isLead: true,
+    role: 'worker',
   },
   {
     id: 'w-demo-2',
@@ -173,5 +177,6 @@ export const workers: Worker[] = [
     assignedTaskIds: ['task-demo-2', 'task-demo-3'],
     availability: 'full',
     isLead: false,
+    role: 'coordinator',
   },
 ];

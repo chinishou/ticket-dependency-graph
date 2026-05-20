@@ -92,9 +92,14 @@ def fetch_departments():
     return result
 
 def fetch_workers():
-    print("Fetching SG HumanUsers...")
+    # Only import users whose SG sg_status is "act" (Active). Disabled/retired/
+    # away users would otherwise show up in the worker list and login picker,
+    # which is rarely what an admin wants. Disabled users that already exist
+    # locally are removed by the daemon's retirement event handler.
+    print("Fetching SG HumanUsers (sg_status=act)...")
     fields = ["id", "name", "permission_group", "department", "sg_status"]
-    users = sg.find("HumanUser", filters=[], fields=fields)
+    filters = [["sg_status", "is", "act"]]
+    users = sg.find("HumanUser", filters=filters, fields=fields)
     result = []
     for u in users:
         dept = u.get("department")
@@ -106,7 +111,7 @@ def fetch_workers():
             "departmentName": dept["name"] if dept else None,
             "sgStatus": u.get("sg_status"),
         })
-    print(f"  Found {len(result)} users")
+    print(f"  Found {len(result)} active users")
     return result
 
 def fetch_project_by_id(project_id):

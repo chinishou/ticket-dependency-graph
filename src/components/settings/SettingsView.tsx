@@ -1059,6 +1059,77 @@ function RoleManagementTab() {
 
 const ROLE_COLORS: Record<string, string> = { admin: '#ef4444', coordinator: '#f59e0b', worker: '#6b7280' };
 
+// === Studio Name (Company) ===
+
+function StudioNameField() {
+  const company = useStore((s) => s.company);
+  const setCompanyName = useStore((s) => s.setCompanyName);
+  const [draft, setDraft] = useState(company.name);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // Re-sync draft if the company name changes elsewhere (e.g. an SG bootstrap)
+  useEffect(() => { setDraft(company.name); }, [company.name]);
+
+  const dirty = draft.trim() !== company.name && draft.trim().length > 0;
+
+  const onSave = async () => {
+    setSaving(true);
+    setError('');
+    const result = await setCompanyName(draft.trim());
+    setSaving(false);
+    if (result.success) {
+      setSavedAt(Date.now());
+    } else {
+      setError(result.error ?? 'Save failed');
+    }
+  };
+
+  return (
+    <div style={{ ...sectionStyle, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ minWidth: 110 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)' }}>Studio Name</div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>Shown in the header bar</div>
+        </div>
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => { setDraft(e.target.value); setSavedAt(null); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && dirty && !saving) void onSave(); }}
+          placeholder="My Studio"
+          style={{
+            flex: 1, padding: '7px 10px', borderRadius: 6,
+            border: '1px solid var(--color-border)',
+            backgroundColor: 'var(--color-bg-tertiary)',
+            color: 'var(--color-text-primary)',
+            fontSize: 13, outline: 'none',
+          }}
+        />
+        <button
+          onClick={onSave}
+          disabled={!dirty || saving}
+          style={{
+            padding: '7px 14px', borderRadius: 6, border: 'none',
+            backgroundColor: 'var(--color-accent)', color: '#0f172a',
+            fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            opacity: !dirty || saving ? 0.4 : 1, whiteSpace: 'nowrap',
+          }}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      {error && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 6 }}>{error}</div>}
+      {savedAt && !dirty && !error && (
+        <div style={{ fontSize: 11, color: '#22c55e', marginTop: 6 }}>
+          ✓ Saved {new Date(savedAt).toLocaleTimeString()}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // === Main Settings View ===
 
 export function SettingsView() {
@@ -1118,6 +1189,9 @@ export function SettingsView() {
             Configure priority weights, lead list, role management, and SG import
           </p>
         </div>
+
+        {/* Studio identity — applies regardless of which tab is active */}
+        <StudioNameField />
 
         {/* Tab Bar */}
         <TabBar active={activeTab} onChange={setActiveTab} />
