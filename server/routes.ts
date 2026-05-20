@@ -914,7 +914,15 @@ router.post('/sg/trigger-sync', (req, res) => {
     return;
   }
   const batchSubcmdMap: Record<string, string[]> = {
-    projects:    ['sync-projects',    ...(statuses?.length ? [`--statuses=${statuses.join(',')}`] : [])],
+    projects:    [
+      'sync-projects',
+      ...(statuses?.length ? [`--statuses=${statuses.join(',')}`] : []),
+      // Same convention as tickets: only narrow when the caller has explicitly
+      // restricted to a subset of project IDs. Otherwise leave unbounded so
+      // newly-created SG projects in the matching statuses are picked up
+      // automatically on the next import.
+      ...(projectIds?.length ? [`--project-ids=${projectIds.join(',')}`] : []),
+    ],
     departments: ['sync-departments'],
     workers:     ['sync-workers'],
     tickets:     [

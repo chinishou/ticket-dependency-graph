@@ -87,9 +87,11 @@ export function SettingsSgSync({ adminPassword }: Props) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <EntitySyncCard
           label="Projects"
-          description="Select which project statuses to import."
+          description="Select which project statuses to import. The project picker lists only projects matching those statuses — click ↻ Refresh after changing them to re-fetch, then deselect specific projects you don't want."
           entity="projects"
           statusType="projectStatuses"
+          projectFilter
+          inheritedProjectStatusFilter={projectStatusFilter}
           adminPassword={adminPassword}
           onSync={runSync}
           onSelectedStatusesChange={setProjectStatusFilter}
@@ -298,13 +300,23 @@ function EntitySyncCard({
   const [resultPhase, setResultPhase] = useState<'none' | 'done' | 'error'>('none');
   const [error, setError] = useState('');
 
-  // Auto-load filter options on mount
+  // Auto-load filter options on mount. When both status and project filters
+  // apply to the same card, sequence them so fetchProjects can use the freshly
+  // computed initial status set to narrow its visible project list (otherwise
+  // it would race with fetchStatuses and see an empty filter).
   useEffect(() => {
-    if (statusType) fetchStatuses();
-    if (projectFilter) fetchProjects();
+    (async () => {
+      let initial: Set<string> | undefined;
+      if (statusType) {
+        initial = await fetchStatuses();
+      }
+      if (projectFilter) {
+        await fetchProjects(initial);
+      }
+    })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fetchStatuses = async () => {
+  const fetchStatuses = async (): Promise<Set<string> | undefined> => {
     setLoadingStatuses(true);
     setError('');
     try {
@@ -320,15 +332,17 @@ function EntitySyncCard({
       const initial = new Set(defaultSelectedStatuses(statusType, statuses));
       setSelectedStatuses(initial);
       onSelectedStatusesChange?.(initial);
+      return initial;
     } catch (e) {
       setError(String(e));
       setAvailableStatuses([]);
+      return undefined;
     } finally {
       setLoadingStatuses(false);
     }
   };
 
-  const fetchProjects = async () => {
+  const fetchProjects = async (forcedFilter?: Set<string>) => {
     setLoadingProjects(true);
     setError('');
     try {
@@ -340,15 +354,15 @@ function EntitySyncCard({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch projects');
       const projects: SgProjectOption[] = data.projects || [];
-      // Two behaviours depending on whether a parent status filter is wired in:
-      //   - Inherited (Tickets card): narrow the *visible* project list to
-      //     those whose sg_status matches the parent's selection, then
-      //     pre-select ALL of them. The user can deselect individual chips
-      //     to further narrow.
-      //   - Standalone (Projects card or other): show every SG project as a
-      //     chip; pre-select Active + Internal as a default.
-      if (inheritedProjectStatusFilter) {
-        const visible = matchProjectsByStatus(projects, inheritedProjectStatusFilter);
+      // Decide which status filter to apply to the visible project list:
+      //   1. `forcedFilter` (passed in for the initial sequenced load — uses
+      //      the freshly computed status set before React has re-rendered).
+      //   2. `inheritedProjectStatusFilter` (current prop) — used on subsequent
+      //      ↻ Refresh clicks once React state has settled.
+      //   3. Neither — standalone mode, no parent filter at all.
+      const activeFilter = forcedFilter ?? inheritedProjectStatusFilter;
+      if (activeFilter) {
+        const visible = matchProjectsByStatus(projects, activeFilter);
         setAvailableProjects(visible);
         setSelectedProjectIds(new Set(visible.map((p) => p.id)));
       } else {

@@ -56,11 +56,17 @@ def fetch_ticket_statuses():
     rows = sg.find("Ticket", [], ["sg_status_list"])
     return sorted({r.get("sg_status_list") for r in rows if r.get("sg_status_list")})
 
-def fetch_projects(statuses=None):
+def fetch_projects(statuses=None, project_ids=None):
     print("Fetching SG Projects...")
     filters = [["is_template", "is", False]]
     if statuses:
         filters.append(["sg_status", "in", statuses])
+    if project_ids:
+        # Coerce to ints — argparse hands us strings, and SG filters need ints
+        # to match the entity-id type. Silently drop any non-numeric values.
+        ids = [int(x) for x in project_ids if str(x).strip().isdigit()]
+        if ids:
+            filters.append(["id", "in", ids])
     fields = ["id", "code", "name", "description", "start_date", "due_date", "sg_duration_days"]
     projects = sg.find("Project", filters=filters, fields=fields)
     result = []
@@ -273,7 +279,8 @@ def cmd_list_projects(_args):
 
 def cmd_sync_projects(args):
     statuses = args.statuses.split(",") if args.statuses else None
-    projects = fetch_projects(statuses=statuses)
+    project_ids = [p for p in args.project_ids.split(",") if p.strip()] if args.project_ids else None
+    projects = fetch_projects(statuses=statuses, project_ids=project_ids)
     post("/api/sg/bootstrap", {"adminPassword": ADMIN_PASSWORD, "projects": projects, "tickets": []})
     print(f"Synced {len(projects)} projects")
 
@@ -399,8 +406,9 @@ if __name__ == "__main__":
     sub.add_parser("list-statuses", help="Print available project/ticket statuses as JSON")
     sub.add_parser("list-projects", help="Print SG projects (id, name, sg_status) as JSON")
 
-    p_proj = sub.add_parser("sync-projects", help="Sync projects (optionally filter by status)")
+    p_proj = sub.add_parser("sync-projects", help="Sync projects (optionally filter by status and/or project IDs)")
     p_proj.add_argument("--statuses", help="Comma-separated sg_status values to include")
+    p_proj.add_argument("--project-ids", dest="project_ids", help="Comma-separated SG Project IDs to include")
 
     sub.add_parser("sync-departments", help="Sync departments from SG")
     sub.add_parser("sync-workers", help="Sync workers/users from SG")
