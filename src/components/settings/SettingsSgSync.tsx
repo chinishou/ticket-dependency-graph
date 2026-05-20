@@ -534,7 +534,7 @@ function EntitySyncCard({
               None
             </button>
             <button
-              onClick={fetchProjects}
+              onClick={() => fetchProjects()}
               disabled={loadingProjects}
               style={{ ...secondaryBtnStyle, padding: '3px 8px', fontSize: 11 }}
               title={inheritedProjectStatusFilter !== undefined
