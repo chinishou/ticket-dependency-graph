@@ -110,7 +110,7 @@ export function SettingsSgSync({ adminPassword }: Props) {
         />
         <EntitySyncCard
           label="Tickets"
-          description="Select which ticket statuses to import. Project filter inherits from the Projects card above."
+          description="Select which ticket statuses to import. The project picker is seeded from the Projects card above; click ↻ Refresh to re-sync, or hand-pick chips to override."
           entity="tickets"
           statusType="ticketStatuses"
           projectFilter
@@ -363,14 +363,10 @@ function EntitySyncCard({
     }
   };
 
-  // Re-derive the inherited selection whenever the parent's status filter
-  // changes (e.g. the user toggles a chip on the Projects card). We don't
-  // re-fetch; we just re-filter the already-cached project list.
-  useEffect(() => {
-    if (!inheritedProjectStatusFilter || !availableProjects) return;
-    const matched = matchProjectsByStatus(availableProjects, inheritedProjectStatusFilter);
-    setSelectedProjectIds(new Set(matched.map((p) => p.id)));
-  }, [inheritedProjectStatusFilter, availableProjects]);
+  // Note: we intentionally do NOT auto-resync the project selection when the
+  // parent card's status filter changes. The user may have manually deselected
+  // specific projects after the initial seed; auto-syncing would clobber that.
+  // Hitting ↻ Refresh on this card explicitly re-seeds from the parent.
 
   const runSync = async () => {
     setRunning(true);
@@ -378,21 +374,12 @@ function EntitySyncCard({
     setError('');
     setResultPhase('none');
     const statuses = statusType ? Array.from(selectedStatuses) : undefined;
-    // Project filter logic depends on the mode:
-    //   - inherited (no UI): always pass the derived IDs. Future projects must
-    //     be picked up by re-running with a fresh project status filter, not
-    //     by going unbounded.
-    //   - standalone picker: keep the historical behaviour — only pass IDs
-    //     when the user has narrowed the set; otherwise leave unbounded so
-    //     newly-created SG projects flow in automatically.
-    let projectIds: number[] | undefined;
-    if (projectFilter) {
-      if (inheritedProjectStatusFilter !== undefined) {
-        projectIds = Array.from(selectedProjectIds);
-      } else if (availableProjects && selectedProjectIds.size < availableProjects.length) {
-        projectIds = Array.from(selectedProjectIds);
-      }
-    }
+    // Only pass projectIds when the user has narrowed the set — if every
+    // available project is selected, leave unbounded so newly-created SG
+    // projects flow into future imports automatically.
+    const projectIds = projectFilter && availableProjects && selectedProjectIds.size < availableProjects.length
+      ? Array.from(selectedProjectIds)
+      : undefined;
     const result = await onSync(entity, statuses, projectIds);
     setOutput(result.output || '');
     if (result.success !== false) {
@@ -495,36 +482,15 @@ function EntitySyncCard({
         </div>
       )}
 
-      {/* Project allow-list. Two modes:
-          1. Standalone picker (inheritedProjectStatusFilter undefined) — the
-             user toggles individual project chips. Used historically.
-          2. Inherited from a sibling card's status filter — picker is hidden;
-             a read-only summary shows how many projects matched. Refresh
-             re-fetches the SG project list and re-applies the inherited
-             status filter. */}
-      {projectFilter && inheritedProjectStatusFilter !== undefined && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)' }}>Projects</span>
-            <span style={{ fontSize: 11, color: 'var(--color-text-muted)', flex: 1 }}>
-              {loadingProjects
-                ? 'Loading…'
-                : availableProjects === null
-                  ? 'Not loaded'
-                  : `${selectedProjectIds.size} matched via Projects card status filter`}
-            </span>
-            <button
-              onClick={fetchProjects}
-              disabled={loadingProjects}
-              style={{ ...secondaryBtnStyle, padding: '3px 8px', fontSize: 11 }}
-              title="Re-fetch project list from SG and re-apply the Projects card status filter"
-            >
-              {loadingProjects ? <span style={{ ...spinnerStyle, width: 10, height: 10 }} /> : '↻ Refresh'}
-            </button>
-          </div>
-        </div>
-      )}
-      {projectFilter && inheritedProjectStatusFilter === undefined && (
+      {/* Project allow-list. Always shows the per-project chip picker so the
+          user can hand-pick projects. When `inheritedProjectStatusFilter` is
+          supplied (Tickets card), the initial seed + the ↻ Refresh action
+          select only those projects whose sg_status matches the parent
+          card's selected statuses. Without it (standalone Projects picker),
+          the seed is Active + Internal by default. After the seed lands the
+          user is free to toggle individual chips; the auto-seed never runs
+          again until the user explicitly hits ↻ Refresh. */}
+      {projectFilter && (
         <div style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)' }}>Projects</span>
@@ -537,7 +503,9 @@ function EntitySyncCard({
                     ? 'No projects in SG'
                     : selectedProjectIds.size === availableProjects.length
                       ? `All ${availableProjects.length} (no project filter applied)`
-                      : `${selectedProjectIds.size} / ${availableProjects.length} selected`}
+                      : `${selectedProjectIds.size} / ${availableProjects.length} selected${
+                          inheritedProjectStatusFilter !== undefined ? ' — seeded from Projects card' : ''
+                        }`}
             </span>
             <button onClick={selectAllProjects} disabled={loadingProjects || !availableProjects?.length}
               style={{ ...secondaryBtnStyle, padding: '3px 8px', fontSize: 11 }}>
@@ -551,6 +519,9 @@ function EntitySyncCard({
               onClick={fetchProjects}
               disabled={loadingProjects}
               style={{ ...secondaryBtnStyle, padding: '3px 8px', fontSize: 11 }}
+              title={inheritedProjectStatusFilter !== undefined
+                ? 'Re-fetch SG projects and re-seed selection from the Projects card status filter'
+                : 'Re-fetch SG projects'}
             >
               {loadingProjects ? <span style={{ ...spinnerStyle, width: 10, height: 10 }} /> : '↻ Refresh'}
             </button>
