@@ -305,8 +305,15 @@ function EntitySyncCard({ label, description, entity, statusType, projectFilter,
       if (!res.ok) throw new Error(data.error || 'Failed to fetch projects');
       const projects: SgProjectOption[] = data.projects || [];
       setAvailableProjects(projects);
-      // Default: all selected. Empty = unbounded (server passes no --project-ids).
-      setSelectedProjectIds(new Set(projects.map((p) => p.id)));
+      // Pre-select only Active + Internal projects by the same rule used for
+      // the standalone Projects-import filter — Tickets in completed/archived
+      // projects are almost always noise. Fall back to all-selected if no
+      // project matches (unusual SG configuration) so the import is still
+      // runnable without manual ticking.
+      const wanted = new Set(PROJECT_STATUS_DEFAULTS);
+      const preferred = projects.filter((p) => p.sg_status && wanted.has(p.sg_status.toLowerCase()));
+      const initial = preferred.length > 0 ? preferred : projects;
+      setSelectedProjectIds(new Set(initial.map((p) => p.id)));
     } catch (e) {
       setError(String(e));
       setAvailableProjects([]);
