@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useStore } from '../../store/useStore';
 import { ProgressBar } from '../shared/ProgressBar';
+import { DeleteEntityButton } from '../shared/DeleteEntityButton';
 import type { StrategicPriority } from '../../types';
 import { usePermission } from '../../hooks/usePermission';
 
@@ -17,6 +18,7 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
 }) => {
   const department = useStore((s) => s.departments.get(departmentId));
   const updateDepartment = useStore((s) => s.updateDepartment);
+  const removeDepartment = useStore((s) => s.removeDepartment);
   const { canEditPriorities } = usePermission();
   const updateGoal = useStore((s) => s.updateGoal);
   const projects = useStore((s) => s.projects);
@@ -131,10 +133,18 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
   return (
     <div style={containerStyle}>
       {/* Back button */}
-      <div style={{ marginBottom: 8 }}>
+      <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
         <button onClick={onBack} style={backButtonStyle}>
           ← Back
         </button>
+        <div style={{ marginLeft: 'auto' }}>
+          <DeleteEntityButton
+            entityKind="department"
+            entityName={department.name}
+            onDelete={() => removeDepartment(departmentId)}
+            onDeleted={onBack}
+          />
+        </div>
       </div>
 
       {/* Header */}

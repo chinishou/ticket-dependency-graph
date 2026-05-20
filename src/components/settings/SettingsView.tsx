@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../../store/useStore';
 import { SettingsSgSync } from './SettingsSgSync';
 import { SgStatusMap } from './SgStatusMap';
+import { SgStatusMapInbound } from './SgStatusMapInbound';
 import { LogViewer } from './LogViewer';
 import {
   DEFAULT_WEIGHTS,
@@ -1258,6 +1259,7 @@ export function SettingsView() {
             </div>
 
             <SgFieldMapping />
+            {adminPassword && <SgStatusMapInbound adminPassword={adminPassword} />}
             {adminPassword && <SgStatusMap adminPassword={adminPassword} />}
             {adminPassword && <SettingsSgSync adminPassword={adminPassword} />}
           </div>

@@ -3,6 +3,7 @@ import { useStore } from '../../store/useStore';
 import { getStatusColor, getStatusLabel, getEtaDays } from '../../types';
 import type { Worker, Task } from '../../types';
 import { computeTaskPriorities, getPriorityLabel, getPriorityColor } from '../../utils/priorityCalc';
+import { DeleteEntityButton } from '../shared/DeleteEntityButton';
 
 interface WorkerViewProps {
   onSelectGoal?: (goalId: string) => void;
@@ -120,6 +121,7 @@ export function WorkerView({ onSelectGoal, onSelectTask }: WorkerViewProps) {
             departmentsMap={departmentsMap}
             onSelectTask={handleSelectTask}
             onSelectGoal={onSelectGoal}
+            onDeleted={() => setSelectedWorkerId(null)}
           />
         ) : (
           <div style={{
@@ -204,7 +206,7 @@ function WorkerListItem({
 // --- Worker detail ---
 
 function WorkerDetail({
-  worker, tasksMap, goalsMap, priorities, departmentsMap, onSelectTask, onSelectGoal,
+  worker, tasksMap, goalsMap, priorities, departmentsMap, onSelectTask, onSelectGoal, onDeleted,
 }: {
   worker: Worker;
   tasksMap: Map<string, Task>;
@@ -213,7 +215,9 @@ function WorkerDetail({
   departmentsMap: Map<string, import('../../types').Department>;
   onSelectTask: (id: string) => void;
   onSelectGoal?: (goalId: string) => void;
+  onDeleted?: () => void;
 }) {
+  const removeWorker = useStore((s) => s.removeWorker);
   const dept = departmentsMap.get(worker.departmentId);
   const activeTasks = (worker.activeTaskIds ?? [])
     .map((id) => tasksMap.get(id))
@@ -254,7 +258,7 @@ function WorkerDetail({
         }}>
           {worker.name.split(' ').map((n) => n[0]).join('')}
         </div>
-        <div>
+        <div style={{ flex: 1 }}>
           <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--color-text-primary)' }}>
             {worker.name}
           </div>
@@ -271,6 +275,12 @@ function WorkerDetail({
             </span>
           </div>
         </div>
+        <DeleteEntityButton
+          entityKind="worker"
+          entityName={worker.name}
+          onDelete={() => removeWorker(worker.id)}
+          onDeleted={onDeleted}
+        />
       </div>
 
       {/* Active Tasks */}

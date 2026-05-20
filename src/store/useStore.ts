@@ -27,6 +27,12 @@ interface PresenceInfo {
   lastSeen: string;
 }
 
+export interface DeleteResult {
+  success: boolean;
+  error?: string;
+  blockers?: string[];
+}
+
 interface AppState {
   // Data
   company: Company;
@@ -107,6 +113,15 @@ interface AppState {
   addTaskToGoal: (goalId: string, task: Task) => void;
   removeTaskFromGoal: (goalId: string, taskId: string) => void;
   removeMilestoneFromGoal: (goalId: string, milestoneId: string) => void;
+  // Per-entity deletes — return result so UI can show 409 blocker lists
+  removeWorker: (workerId: string) => Promise<DeleteResult>;
+  removeProject: (projectId: string) => Promise<DeleteResult>;
+  removeDepartment: (deptId: string) => Promise<DeleteResult>;
+  removeTask: (taskId: string) => Promise<DeleteResult>;
+  removeMilestone: (milestoneId: string) => Promise<DeleteResult>;
+  // Bulk clears (admin-only)
+  bulkClearTickets: (scope?: 'all' | 'sg') => Promise<{ success: boolean; deleted?: number; error?: string }>;
+  bulkClearWorkers: (scope?: 'all' | 'sg') => Promise<{ success: boolean; deleted?: number; error?: string }>;
 
   // Data loading
   fetchState: () => Promise<void>;
@@ -173,6 +188,35 @@ async function serverMutation(type: string, body: Record<string, unknown>, set: 
     }
   } catch {
     // Server unavailable — local state is still valid from optimistic update
+  }
+}
+
+// Server-first delete: don't mutate local state until we know the server accepted it.
+// This is important because the server may refuse with a 409 blockers list, in which
+// case any optimistic removal would have to be reverted.
+async function serverDelete(type: string, body: Record<string, unknown>, set: (s: Partial<AppState>) => void, getState: () => AppState): Promise<DeleteResult> {
+  const enriched = { ...body, userName: getState().userName, role: getState().userRole, userWorkerId: getState().userWorkerId };
+  try {
+    const res = await fetch(`/api/mutations/${type}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(enriched),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.entities) {
+        set({ ...applyEntities(data.entities), lastModified: data.lastModified });
+      }
+      return { success: true };
+    }
+    const data = await res.json().catch(() => ({}));
+    return {
+      success: false,
+      error: (data as { error?: string }).error || `HTTP ${res.status}`,
+      blockers: (data as { blockers?: string[] }).blockers,
+    };
+  } catch (e) {
+    return { success: false, error: String(e) };
   }
 }
 
@@ -1028,6 +1072,52 @@ export const useStore = create<AppState>((set, get) => ({
 
     set({ milestones: newMilestones, goals: newGoals, tasks: newTasks, selectedMilestoneId: null });
     serverMutation('removeMilestoneFromGoal', { goalId, milestoneId }, set, get);
+  },
+
+  removeWorker: (workerId) => serverDelete('removeWorker', { entityId: workerId }, set, get),
+  removeProject: (projectId) => serverDelete('removeProject', { entityId: projectId }, set, get),
+  removeDepartment: (deptId) => serverDelete('removeDepartment', { entityId: deptId }, set, get),
+  removeTask: (taskId) => serverDelete('removeTask', { entityId: taskId }, set, get),
+  removeMilestone: (milestoneId) => serverDelete('removeMilestone', { entityId: milestoneId }, set, get),
+
+  bulkClearTickets: async (scope = 'all') => {
+    const pwd = get().adminPassword;
+    if (!pwd) return { success: false, error: 'Admin password required' };
+    try {
+      const res = await fetch('/api/sg/clear-all-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword: pwd, scope }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+      if (data.entities) {
+        set({ ...applyEntities(data.entities), lastModified: data.lastModified });
+      }
+      return { success: true, deleted: data.deleted };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
+  },
+
+  bulkClearWorkers: async (scope = 'all') => {
+    const pwd = get().adminPassword;
+    if (!pwd) return { success: false, error: 'Admin password required' };
+    try {
+      const res = await fetch('/api/sg/clear-all-workers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword: pwd, scope }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+      if (data.entities) {
+        set({ ...applyEntities(data.entities), lastModified: data.lastModified });
+      }
+      return { success: true, deleted: data.deleted };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
   },
 
   setCalibrationWeights: (weights) => {

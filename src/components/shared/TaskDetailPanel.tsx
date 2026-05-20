@@ -3,6 +3,7 @@ import { useStore } from '../../store/useStore';
 import { getStatusColor, getStatusLabel, getEtaDays } from '../../types';
 import { computeTaskPriorities, getPriorityLabel, getPriorityColor } from '../../utils/priorityCalc';
 import { usePermission } from '../../hooks/usePermission';
+import { DeleteEntityButton } from './DeleteEntityButton';
 
 function CollapsibleDescription({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -238,6 +239,8 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
   const updateMilestone = useStore((s) => s.updateMilestone);
   const removeTaskFromGoal = useStore((s) => s.removeTaskFromGoal);
   const removeMilestoneFromGoal = useStore((s) => s.removeMilestoneFromGoal);
+  const removeTask = useStore((s) => s.removeTask);
+  const removeMilestone = useStore((s) => s.removeMilestone);
   const overridePriority = useStore((s) => s.overridePriority);
   const liftPriorityOverride = useStore((s) => s.liftPriorityOverride);
   const getTasksForGoal = useStore((s) => s.getTasksForGoal);
@@ -328,7 +331,7 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
         />
 
         {canEditTasks && (
-          <div style={{ marginTop: 24, borderTop: '1px solid var(--color-bg-tertiary)', paddingTop: 12 }}>
+          <div style={{ marginTop: 24, borderTop: '1px solid var(--color-bg-tertiary)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <button
               onClick={() => removeMilestoneFromGoal(goalId, selectedMilestoneId)}
               style={{
@@ -339,6 +342,12 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
             >
               Remove from Goal
             </button>
+            <DeleteEntityButton
+              entityKind="milestone"
+              entityName={ms.name}
+              onDelete={() => removeMilestone(selectedMilestoneId)}
+              onDeleted={() => setSelectedMilestone(null)}
+            />
           </div>
         )}
       </div>
@@ -683,7 +692,7 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
 
       {/* Remove from goal (editor roles only) */}
       {canEditTasks && (
-        <div style={{ marginTop: 24, borderTop: '1px solid var(--color-bg-tertiary)', paddingTop: 12 }}>
+        <div style={{ marginTop: 24, borderTop: '1px solid var(--color-bg-tertiary)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button
             onClick={() => removeTaskFromGoal(goalId, selectedTaskId)}
             style={{
@@ -694,6 +703,12 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
           >
             Remove from Goal
           </button>
+          <DeleteEntityButton
+            entityKind="task"
+            entityName={task.name}
+            onDelete={() => removeTask(selectedTaskId)}
+            onDeleted={() => setSelectedTask(null)}
+          />
         </div>
       )}
     </div>

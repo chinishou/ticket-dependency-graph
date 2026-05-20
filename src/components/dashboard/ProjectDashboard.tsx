@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { useStore } from '../../store/useStore';
 import { ProgressBar } from '../shared/ProgressBar';
 import { StatusBadge } from '../shared/StatusBadge';
+import { DeleteEntityButton } from '../shared/DeleteEntityButton';
 import type { Task, TaskStatus, StrategicPriority } from '../../types';
 import { getPriorityColor } from '../../types';
 import { usePermission } from '../../hooks/usePermission';
@@ -19,6 +20,7 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 }) => {
   const project = useStore((s) => s.projects.get(projectId));
   const updateProject = useStore((s) => s.updateProject);
+  const removeProject = useStore((s) => s.removeProject);
   const { canEditPriorities } = usePermission();
   const departments = useStore((s) => s.departments);
   const goals = useStore((s) => s.goals);
@@ -136,6 +138,14 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         <button onClick={onBack} style={backButtonStyle} title="Back">
           ← Back
         </button>
+        <div style={{ marginLeft: 'auto' }}>
+          <DeleteEntityButton
+            entityKind="project"
+            entityName={project.name}
+            onDelete={() => removeProject(projectId)}
+            onDeleted={onBack}
+          />
+        </div>
       </div>
 
       <div style={cardStyle}>

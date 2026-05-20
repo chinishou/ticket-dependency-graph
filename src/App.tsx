@@ -68,7 +68,7 @@ function App() {
   const [topView, setTopView] = useState<TopView>(() => getDefaultView(userRole));
   const [subViewA, setSubViewA] = useState<SubViewA>(() => userRole === 'coordinator' ? 'goal-map' : 'tech-tree');
   const [subViewB, setSubViewB] = useState<SubViewB>('company');
-  const [selectedGoalId, setSelectedGoalId] = useState('goal-usd-pipeline');
+  const [selectedGoalId, setSelectedGoalId] = useState('goal-demo');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedDeptId, setSelectedDeptId] = useState('');
   const [entrySource, setEntrySource] = useState<EntrySource>({ from: 'goal-map' });

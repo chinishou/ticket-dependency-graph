@@ -114,8 +114,81 @@ export function SettingsSgSync({ adminPassword }: Props) {
 
       <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: '16px 0' }} />
 
-      {/* Clear */}
-      <ClearCard adminPassword={adminPassword} onDone={async () => { await fetchState(); await loadStatus(); }} />
+      {/* Data cleanup */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <BulkClearCard
+          kind="tickets"
+          title="Clear All Tickets"
+          description="Permanently delete every ticket/task — both SG-imported and demo. Workers, goals, and milestones will be cleaned up automatically."
+          onDone={async () => { await fetchState(); await loadStatus(); }}
+        />
+        <BulkClearCard
+          kind="workers"
+          title="Clear All Workers"
+          description="Permanently delete every worker — both SG-imported and demo. Task assignments will be cleared automatically."
+          onDone={async () => { await fetchState(); await loadStatus(); }}
+        />
+        <ClearCard adminPassword={adminPassword} onDone={async () => { await fetchState(); await loadStatus(); }} />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BulkClearCard — wipe every ticket or every worker (both demo + SG)
+// ---------------------------------------------------------------------------
+
+function BulkClearCard({ kind, title, description, onDone }: {
+  kind: 'tickets' | 'workers';
+  title: string;
+  description: string;
+  onDone: () => Promise<void>;
+}) {
+  const bulkClearTickets = useStore((s) => s.bulkClearTickets);
+  const bulkClearWorkers = useStore((s) => s.bulkClearWorkers);
+  const [phase, setPhase] = useState<'idle' | 'confirming' | 'running' | 'done' | 'error'>('idle');
+  const [deleted, setDeleted] = useState(0);
+  const [error, setError] = useState('');
+
+  const run = async () => {
+    setPhase('running');
+    const result = kind === 'tickets' ? await bulkClearTickets('all') : await bulkClearWorkers('all');
+    if (result.success) {
+      setDeleted(result.deleted ?? 0);
+      setPhase('done');
+      await onDone();
+    } else {
+      setError(result.error ?? 'Unknown error');
+      setPhase('error');
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 10 }}>{description}</div>
+      {phase === 'idle' && <button onClick={() => setPhase('confirming')} style={destructiveBtnStyle}>{title}</button>}
+      {phase === 'confirming' && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: '#ef4444' }}>Permanently delete all {kind}?</span>
+          <button onClick={() => setPhase('idle')} style={secondaryBtnStyle}>Cancel</button>
+          <button onClick={run} style={destructiveBtnStyle}>Confirm Delete</button>
+        </div>
+      )}
+      {phase === 'running' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={spinnerStyle} />
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>Deleting…</span>
+        </div>
+      )}
+      {(phase === 'done' || phase === 'error') && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: phase === 'done' ? '#22c55e' : '#ef4444' }}>
+            {phase === 'done' ? `✓ Deleted ${deleted} ${kind}` : `✗ ${error}`}
+          </span>
+          <button onClick={() => { setPhase('idle'); setDeleted(0); setError(''); }} style={secondaryBtnStyle}>Reset</button>
+        </div>
+      )}
     </div>
   );
 }
