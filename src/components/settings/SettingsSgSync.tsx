@@ -194,6 +194,41 @@ function BulkClearCard({ kind, title, description, onDone }: {
 }
 
 // ---------------------------------------------------------------------------
+// Default status selections
+// ---------------------------------------------------------------------------
+//
+// The user almost always wants to filter SG status on import — importing every
+// resolved/omitted/archived row creates noise that has to be cleaned up later.
+// These defaults pre-select the most-useful subset; the user can still tick or
+// untick any individual code before hitting Import.
+
+/** Project statuses: only Active + Internal by default. Matched case-insensitively
+ * since SG sites vary on whether they return short codes ('act', 'int') or
+ * display labels ('Active', 'Internal'). */
+const PROJECT_STATUS_DEFAULTS = ['active', 'internal', 'act', 'int'];
+
+/** Ticket statuses: ALL except 'omt' (omit) and 'res' (resolved). Tickets in
+ * those states are usually noise for the dependency graph view. */
+const TICKET_STATUS_EXCLUDE = ['omt', 'res'];
+
+function defaultSelectedStatuses(
+  statusType: 'projectStatuses' | 'ticketStatuses' | undefined,
+  available: string[],
+): string[] {
+  if (!statusType) return available;
+  if (statusType === 'projectStatuses') {
+    const wanted = new Set(PROJECT_STATUS_DEFAULTS);
+    const matched = available.filter((s) => wanted.has(s.toLowerCase()));
+    // If nothing matched (unusual SG configuration), fall back to all-selected
+    // so the user still gets a usable starting point.
+    return matched.length > 0 ? matched : available;
+  }
+  // ticketStatuses — invert: exclude the noisy codes
+  const exclude = new Set(TICKET_STATUS_EXCLUDE);
+  return available.filter((s) => !exclude.has(s.toLowerCase()));
+}
+
+// ---------------------------------------------------------------------------
 // EntitySyncCard — handles status-filter flow + sync for one entity type
 // ---------------------------------------------------------------------------
 
@@ -248,7 +283,7 @@ function EntitySyncCard({ label, description, entity, statusType, projectFilter,
       if (!res.ok) throw new Error(data.error || 'Failed to fetch statuses');
       const statuses: string[] = data[statusType!] || [];
       setAvailableStatuses(statuses);
-      setSelectedStatuses(new Set(statuses)); // default: all selected
+      setSelectedStatuses(new Set(defaultSelectedStatuses(statusType, statuses)));
     } catch (e) {
       setError(String(e));
       setAvailableStatuses([]);

@@ -565,16 +565,21 @@ router.post('/sg/archive/project', requireSgSecret, (req, res) => {
 // The two endpoints below are the ONLY paths in the app that mutate SG.
 const SG_WRITE_DISABLED = process.env.SG_WRITE_DISABLED === '1' || process.env.SG_WRITE_DISABLED === 'true';
 
-// Fallback used only if the admin hasn't configured a mapping yet.
-// In production the mapping should come from /api/sg/status-map (persisted
-// in the meta table) so the codes always match the live SG site.
+// Defaults applied when no user override exists for a given TaskStatus. The
+// admin can override these per site via Settings → SG → Status Mapping
+// (Outbound); the saved values land in the `meta` table and merge on top.
+//
+// Values reflect the codes used on most live SG sites in this org:
+//   res  = resolved   · ip  = in progress
+//   rdy  = ready      · bkd = blocked
+//   hld  = on hold    · opn = open
 const DEFAULT_SG_STATUS_MAP: Record<string, string> = {
-  completed: 'res',
+  completed:   'res',
   in_progress: 'ip',
-  available: 'opn',
-  blocked: 'hold',
-  paused: 'wtg',
-  locked: 'opn',
+  available:   'rdy',
+  blocked:     'bkd',
+  paused:      'hld',
+  locked:      'opn',
 };
 
 function loadSgStatusMap(): Record<string, string> {
@@ -624,24 +629,46 @@ router.post('/sg/status-map', (req, res) => {
 // --- Inbound SG status mapping (SG sg_status_list code → local TaskStatus) ---
 // Stored as { [sgCode]: TaskStatus }. Unmapped codes fall through to keyword
 // matching in mapSgStatusToTaskStatus(); unknown codes default to 'available'.
+//
+// Defaults reflect the SG codes most commonly seen in this org. The admin can
+// override per site via Settings → SG → Status Mapping (Inbound); saved values
+// merge on top so partial overrides still get the rest of the defaults.
 
 const ALLOWED_TASK_STATUSES = new Set([
   'completed', 'in_progress', 'available', 'paused', 'blocked', 'locked',
 ]);
 
+export const DEFAULT_SG_STATUS_MAP_INBOUND: Record<string, string> = {
+  res:  'completed',
+  ip:   'in_progress',
+  cdrv: 'in_progress',  // code review
+  kckb: 'in_progress',  // kick-back
+  rev:  'in_progress',  // review
+  wfb:  'in_progress',  // waiting for feedback
+  rdy:  'available',
+  tri:  'available',    // triage
+  bkd:  'blocked',
+  hld:  'paused',       // on hold
+  opn:  'locked',
+  omt:  'locked',       // omit
+};
+
 function loadInboundStatusMap(): Record<string, string> {
   const raw = getMeta('sg_status_map_inbound');
-  if (!raw) return {};
+  if (!raw) return { ...DEFAULT_SG_STATUS_MAP_INBOUND };
   try {
     const parsed = JSON.parse(raw) as Record<string, string>;
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_SG_STATUS_MAP_INBOUND };
+    // User overrides merge on top of defaults so a partial save doesn't lose
+    // unrelated mappings.
+    return { ...DEFAULT_SG_STATUS_MAP_INBOUND, ...parsed };
   } catch {
-    return {};
+    return { ...DEFAULT_SG_STATUS_MAP_INBOUND };
   }
 }
 
 router.get('/sg/status-map-inbound', (_req, res) => {
-  res.json({ map: loadInboundStatusMap() });
+  res.json({ map: loadInboundStatusMap(), defaults: DEFAULT_SG_STATUS_MAP_INBOUND });
 });
 
 router.post('/sg/status-map-inbound', (req, res) => {

@@ -242,12 +242,12 @@ export const useStore = create<AppState>((set, get) => ({
   // Hardcoded fallback — kept in sync with DEFAULT_SG_STATUS_MAP in server/routes.ts.
   // Replaced by the server-stored map after loadSgStatusMap() completes.
   sgStatusMap: {
-    completed: 'res',
+    completed:   'res',
     in_progress: 'ip',
-    available: 'opn',
-    blocked: 'hold',
-    paused: 'wtg',
-    locked: 'opn',
+    available:   'rdy',
+    blocked:     'bkd',
+    paused:      'hld',
+    locked:      'opn',
   },
 
   userName: (() => {
