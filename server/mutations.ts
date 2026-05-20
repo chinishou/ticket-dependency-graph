@@ -607,6 +607,33 @@ function loadInboundStatusMap(): Record<string, SgTaskStatus> {
   }
 }
 
+// SG tickets created via the in-DCC reporter / crash-report templates wrap
+// the user's actual prose between an Environment block and a platform footer,
+// roughly:
+//
+//   ------------
+//   Environment
+//   …
+//   ------------
+//   Description
+//   ------------
+//   the actual user description we care about
+//   ------------
+//   platform-linux arch-x86_64 …
+//
+// Strip everything except the bit between the "Description" header and the
+// dashed line that closes it. If the description doesn't follow the template
+// (e.g. a hand-typed ticket), return the original untouched so we don't lose
+// real content.
+export function extractSgTicketDescription(raw: string): string {
+  if (!raw) return '';
+  // Allow some flexibility on the dashes (4+ in a row) and on whitespace.
+  const re = /(?:^|\n)\s*Description\s*\r?\n-{4,}\s*\r?\n([\s\S]*?)\r?\n\s*-{4,}/m;
+  const m = raw.match(re);
+  if (!m) return raw;
+  return m[1].trim();
+}
+
 export function mapSgStatusToTaskStatus(sgStatus: string): SgTaskStatus {
   const code = sgStatus?.trim() || '';
   if (code) {
@@ -644,7 +671,7 @@ export function upsertTaskFromSg(payload: SgTicketPayload, goalId = '') {
       // and components like TimelineView/getRelatedNodeIds use task.id directly.
       id: taskId,
       name: safeName,
-      description: payload.description || '',
+      description: extractSgTicketDescription(payload.description || ''),
       status: mapSgStatusToTaskStatus(payload.sgStatus || ''),
       ticketId: payload.id.toString(),
       ticketUrl: payload.project ? `https://wei-dev.shotgrid.autodesk.com/tickets/${payload.id}` : undefined,

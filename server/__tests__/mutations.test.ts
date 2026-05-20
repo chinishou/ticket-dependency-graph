@@ -22,6 +22,7 @@ import {
   archiveProjectFromSg,
   setSgSiteName,
   mapSgStatusToTaskStatus,
+  extractSgTicketDescription,
 } from '../mutations';
 
 beforeEach(() => {
@@ -104,6 +105,58 @@ describe('mapSgStatusToTaskStatus', () => {
     // imported tickets with no dependencies aren't surfaced as locked.
     expect(mapSgStatusToTaskStatus('whatever')).toBe('available');
     expect(mapSgStatusToTaskStatus('')).toBe('available');
+  });
+});
+
+// --- extractSgTicketDescription ---
+
+describe('extractSgTicketDescription', () => {
+  it('extracts the body between Description header and the next dashed line', () => {
+    const raw = [
+      '------------',
+      'Environment',
+      'Hostname : box65',
+      'User : alexb',
+      'CPU : AMD etc.',
+      '------------',
+      'Description',
+      '------------',
+      'the shot resolver seems to mess up with the assets.',
+      '------------',
+      'platform-linux arch-x86_64 os-rocky-9.3',
+    ].join('\n');
+    expect(extractSgTicketDescription(raw)).toBe(
+      'the shot resolver seems to mess up with the assets.',
+    );
+  });
+
+  it('handles multi-line bodies and trims surrounding whitespace', () => {
+    const raw = [
+      '------------',
+      'Description',
+      '------------',
+      '',
+      'first line',
+      'second line',
+      '',
+      '------------',
+      'trailing footer',
+    ].join('\n');
+    expect(extractSgTicketDescription(raw)).toBe('first line\nsecond line');
+  });
+
+  it('returns the original string when the template is absent', () => {
+    expect(extractSgTicketDescription('just a hand-typed description'))
+      .toBe('just a hand-typed description');
+  });
+
+  it('returns empty for empty input', () => {
+    expect(extractSgTicketDescription('')).toBe('');
+  });
+
+  it('handles CRLF line endings', () => {
+    const raw = '------------\r\nDescription\r\n------------\r\nmy desc\r\n------------\r\nfooter';
+    expect(extractSgTicketDescription(raw)).toBe('my desc');
   });
 });
 
