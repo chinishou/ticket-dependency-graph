@@ -110,7 +110,7 @@ export function SettingsSgSync({ adminPassword }: Props) {
         />
         <EntitySyncCard
           label="Tickets"
-          description="Select which ticket statuses to import. The project picker is seeded from the Projects card above; click ↻ Refresh to re-sync, or hand-pick chips to override."
+          description="Select which ticket statuses to import. The project picker lists only projects matching the Projects card status filter — click ↻ Refresh after changing the filter to re-fetch, then deselect specific projects you don't want."
           entity="tickets"
           statusType="ticketStatuses"
           projectFilter
@@ -340,16 +340,19 @@ function EntitySyncCard({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch projects');
       const projects: SgProjectOption[] = data.projects || [];
-      setAvailableProjects(projects);
+      // Two behaviours depending on whether a parent status filter is wired in:
+      //   - Inherited (Tickets card): narrow the *visible* project list to
+      //     those whose sg_status matches the parent's selection, then
+      //     pre-select ALL of them. The user can deselect individual chips
+      //     to further narrow.
+      //   - Standalone (Projects card or other): show every SG project as a
+      //     chip; pre-select Active + Internal as a default.
       if (inheritedProjectStatusFilter) {
-        // No visible picker — selection is always derived from the parent
-        // card's status filter. Keep selectedProjectIds in sync with that so
-        // canRun gates on a non-empty set.
-        const matched = matchProjectsByStatus(projects, inheritedProjectStatusFilter);
-        setSelectedProjectIds(new Set(matched.map((p) => p.id)));
+        const visible = matchProjectsByStatus(projects, inheritedProjectStatusFilter);
+        setAvailableProjects(visible);
+        setSelectedProjectIds(new Set(visible.map((p) => p.id)));
       } else {
-        // Standalone Projects picker — pre-select Active + Internal as a
-        // sensible default. Fall back to all-selected if nothing matches.
+        setAvailableProjects(projects);
         const wanted = new Set(PROJECT_STATUS_DEFAULTS);
         const preferred = projects.filter((p) => p.sg_status && wanted.has(p.sg_status.toLowerCase()));
         const initial = preferred.length > 0 ? preferred : projects;
@@ -363,10 +366,11 @@ function EntitySyncCard({
     }
   };
 
-  // Note: we intentionally do NOT auto-resync the project selection when the
-  // parent card's status filter changes. The user may have manually deselected
-  // specific projects after the initial seed; auto-syncing would clobber that.
-  // Hitting ↻ Refresh on this card explicitly re-seeds from the parent.
+  // Note: we intentionally do NOT auto-resync the project list when the parent
+  // card's status filter changes. The user may have already manually
+  // deselected specific chips after the initial seed; auto-syncing would
+  // clobber that. Hitting ↻ Refresh explicitly re-fetches with the parent's
+  // current filter applied.
 
   const runSync = async () => {
     setRunning(true);
@@ -500,12 +504,12 @@ function EntitySyncCard({
                 : availableProjects === null
                   ? 'Not loaded'
                   : availableProjects.length === 0
-                    ? 'No projects in SG'
+                    ? (inheritedProjectStatusFilter !== undefined
+                        ? 'No projects match Projects card status filter'
+                        : 'No projects in SG')
                     : selectedProjectIds.size === availableProjects.length
-                      ? `All ${availableProjects.length} (no project filter applied)`
-                      : `${selectedProjectIds.size} / ${availableProjects.length} selected${
-                          inheritedProjectStatusFilter !== undefined ? ' — seeded from Projects card' : ''
-                        }`}
+                      ? `All ${availableProjects.length}${inheritedProjectStatusFilter !== undefined ? ' (matching Projects card status filter)' : ' (no project filter applied)'}`
+                      : `${selectedProjectIds.size} / ${availableProjects.length} selected`}
             </span>
             <button onClick={selectAllProjects} disabled={loadingProjects || !availableProjects?.length}
               style={{ ...secondaryBtnStyle, padding: '3px 8px', fontSize: 11 }}>
