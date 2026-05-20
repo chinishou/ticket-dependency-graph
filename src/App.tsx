@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import { GoalSelector } from './components/layout/GoalSelector';
-import { ParentSelector } from './components/layout/ParentSelector';
+import { ParentDropdown } from './components/layout/ParentDropdown';
 import { ViewSwitcher, getDefaultView } from './components/layout/ViewSwitcher';
 import type { TopView } from './components/layout/ViewSwitcher';
 import { LoginPage } from './components/layout/LoginPage';
@@ -300,6 +300,13 @@ function App() {
               Goal Map
             </button>
           )}
+          {topView === 'A' && (
+            <ParentDropdown
+              parentType={goalMapParentType}
+              parentId={goalMapParentId}
+              onChange={handleParentChange}
+            />
+          )}
           {topView === 'A' && subViewA === 'tech-tree' && (
             <GoalSelector
               selectedGoalId={selectedGoalId}
@@ -318,23 +325,16 @@ function App() {
         </div>
       )}
 
-      {/* View A: Tech Tree */}
+      {/* View A: Dependency Graph (goal-map sub-view).
+          Parent picker now lives in the top bar via ParentDropdown — the old
+          horizontal pill bar above the map is gone. */}
       {topView === 'A' && subViewA === 'goal-map' && (
-        <div key="goal-map" className="view-enter" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ borderBottom: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-secondary)', flexShrink: 0 }}>
-            <ParentSelector
-              parentType={goalMapParentType}
-              parentId={goalMapParentId}
-              onChange={handleParentChange}
-            />
-          </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <GoalMapView
-              parentType={goalMapParentType}
-              parentId={goalMapParentId}
-              onSelectGoal={handleGoalMapSelect}
-            />
-          </div>
+        <div key="goal-map" className="view-enter" style={{ width: '100%', height: '100%' }}>
+          <GoalMapView
+            parentType={goalMapParentType}
+            parentId={goalMapParentId}
+            onSelectGoal={handleGoalMapSelect}
+          />
         </div>
       )}
       {topView === 'A' && subViewA === 'tech-tree' && (

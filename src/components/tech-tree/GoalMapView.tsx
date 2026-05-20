@@ -505,7 +505,7 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
           backgroundColor: 'rgba(167, 139, 250, 0.1)', border: '1px solid rgba(167, 139, 250, 0.2)',
           color: 'var(--color-text-muted)', fontSize: 11, zIndex: 5, pointerEvents: 'none',
         }}>
-          Click to select · Double-click to open tech tree
+          Click to select · Double-click to open dependency graph
         </div>
       )}
 
@@ -515,7 +515,7 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
           alignItems: 'center', justifyContent: 'center', gap: 12, zIndex: 4,
           pointerEvents: 'none',
         }}>
-          <div style={{ fontSize: 36, opacity: 0.3 }}>🌳</div>
+          <div style={{ fontSize: 36, opacity: 0.3 }}>🕸️</div>
           <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)', opacity: 0.6 }}>
             No goals yet
           </div>
