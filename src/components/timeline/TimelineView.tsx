@@ -191,7 +191,15 @@ export function TimelineView({ onSelectGoal }: TimelineViewProps) {
 
   const allTasks = useMemo(
     () => {
-      let tasks = Array.from(tasksMap.values()).filter((t) => !t.unplaced && !t.archived);
+      // Visibility rule for Timeline tasks: not archived AND parented to
+      // a goal that still exists. We deliberately don't check the
+      // `unplaced` flag — historical data has tasks with a real goalId
+      // but a leftover `unplaced: true` flag from before the place-task
+      // fix; trusting `goalId` instead lets those heal without a
+      // migration. Freshly placed tasks set `unplaced: false` anyway.
+      let tasks = Array.from(tasksMap.values()).filter(
+        (t) => !t.archived && !!t.goalId && goalsMap.has(t.goalId),
+      );
       if (filterProject || filterDept) {
         tasks = tasks.filter((t) => {
           const projectIds = (t as { relatedProjectIds?: string[] }).relatedProjectIds ?? [];
@@ -208,7 +216,15 @@ export function TimelineView({ onSelectGoal }: TimelineViewProps) {
     },
     [tasksMap, filterProject, filterDept, goalsMap],
   );
-  const allMilestones = useMemo(() => Array.from(milestonesMap.values()), [milestonesMap]);
+  const allMilestones = useMemo(() => {
+    // Same orphan filter for goal-parented milestones. Project-parented
+    // milestones survive as long as the project entity exists.
+    return Array.from(milestonesMap.values()).filter((m) => {
+      if (m.parentType === 'goal') return goalsMap.has(m.parentId);
+      if (m.parentType === 'project') return projectsMap.has(m.parentId);
+      return true;
+    });
+  }, [milestonesMap, goalsMap, projectsMap]);
 
   const { scheduledTasks, scheduledMilestones } = useMemo(
     () => computeSchedule(allTasks, allMilestones, goalsMap),

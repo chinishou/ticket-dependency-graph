@@ -172,7 +172,9 @@ export function GlobalUnplacedPanel({ onClose }: GlobalUnplacedPanelProps) {
                     value=""
                     onChange={(e) => {
                       if (e.target.value) {
-                        addTaskToGoal(e.target.value, { ...task, goalId: e.target.value });
+                        // Clear unplaced — otherwise Timeline / other "placed
+                        // tasks only" views will keep skipping this task.
+                        addTaskToGoal(e.target.value, { ...task, goalId: e.target.value, unplaced: false });
                       }
                       e.target.value = '';
                     }}
