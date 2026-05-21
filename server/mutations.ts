@@ -583,6 +583,20 @@ export interface SgTicketPayload {
   retired?: boolean;
 }
 
+// ShotGrid stores `sg_estimate` and `time_logs_sum` as DURATION fields, which
+// the API returns in MINUTES regardless of how the user entered them in the
+// SG UI ("2 days" = 960 min on a standard 8-hour workday). The app treats
+// `sgEstimate`/`sgTimeLogged` as days internally (e.g. `baseDurationDays`
+// drives the priority graph factor), so convert at ingress.
+const MINUTES_PER_WORKDAY = 480; // 8h × 60min — SG's standard workday
+
+export function sgMinutesToDays(min?: number | null): number | undefined {
+  if (min == null || !Number.isFinite(min)) return undefined;
+  // 2-decimal precision: 0.01 days = ~5 minutes, plenty for the UI and the
+  // priority-calc consumers, and avoids displaying long float tails.
+  return Math.round((min / MINUTES_PER_WORKDAY) * 100) / 100;
+}
+
 // Code-level defaults for the inbound SG-code → TaskStatus mapping. Kept in
 // sync with DEFAULT_SG_STATUS_MAP_INBOUND in server/routes.ts; the defaults
 // here exist so this module doesn't have to import from routes (the import
@@ -690,11 +704,13 @@ export function upsertTaskFromSg(payload: SgTicketPayload, goalId = '') {
       sgProjectId: payload.project?.id,
       sgProjectName: payload.project?.name,
       sgStatus: payload.sgStatus,
-      sgEstimate: payload.sgEstimate,
-      sgTimeLogged: payload.timeLogsSum,
+      // Convert minutes → days at ingress. `sgEstimate` and `sgTimeLogged`
+      // are stored as days throughout the app from this point on.
+      sgEstimate: sgMinutesToDays(payload.sgEstimate),
+      sgTimeLogged: sgMinutesToDays(payload.timeLogsSum),
       sgAssignedTo: sgAssignees,
       assignedWorkerIds: newWorkerIds,
-      baseDurationDays: payload.sgEstimate || 1,
+      baseDurationDays: sgMinutesToDays(payload.sgEstimate) || 1,
       syncSource: 'sg' as const,
       archived: isArchived,
       archivedAt: isArchived
