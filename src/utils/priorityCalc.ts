@@ -67,8 +67,14 @@ export function computeDeptFactor(deptPriority: StrategicPriority): number {
 }
 
 export function computeGoalFactor(goalPriority: number): number {
-  // goalPriority: 1 (highest) → 100, 2 → 66.7, 3 (lowest) → 33.3
-  return ((4 - goalPriority) / 3) * 100;
+  // goalPriority: 1 (highest) → 100, 2 → 66.7, 3 (lowest) → 33.3.
+  // Clamp out-of-range inputs (legacy goals were created with 99 as a
+  // "sort last" sentinel; un-clamped that yields a wildly negative factor).
+  let p = goalPriority;
+  if (!Number.isFinite(p)) p = 3;
+  if (p < 1) p = 1;
+  if (p > 3) p = 3;
+  return ((4 - p) / 3) * 100;
 }
 
 export function computeCreatorFactor(isLead: boolean): number {

@@ -5,6 +5,18 @@ import { DeleteEntityButton } from '../shared/DeleteEntityButton';
 import type { StrategicPriority } from '../../types';
 import { usePermission } from '../../hooks/usePermission';
 
+// Goal.departmentPriority is meant to be 1, 2, or 3. Older goals were created
+// with the sentinel value 99 ("sort last"), which breaks the priority UI
+// (no 1/2/3 button highlights as "active") and feeds nonsense into the
+// priority calc. Clamp anything outside [1,3] to 3 (lowest valid) for both
+// display and sort.
+function clampGoalPriority(p: number | undefined | null): number {
+  if (p == null || !Number.isFinite(p)) return 3;
+  if (p < 1) return 1;
+  if (p > 3) return 3;
+  return Math.round(p);
+}
+
 interface DeptDashboardProps {
   departmentId: string;
   onSelectGoal: (goalId: string) => void;
@@ -22,20 +34,27 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
   const { canEditPriorities } = usePermission();
   const updateGoal = useStore((s) => s.updateGoal);
   const projects = useStore((s) => s.projects);
+  const goals = useStore((s) => s.goals);
   const tasks = useStore((s) => s.tasks);
+  const milestones = useStore((s) => s.milestones);
   const workers = useStore((s) => s.workers);
   const getGoalsForDepartment = useStore((s) => s.getGoalsForDepartment);
   const getTasksForGoal = useStore((s) => s.getTasksForGoal);
   const getMilestonesForGoal = useStore((s) => s.getMilestonesForGoal);
 
+  // IMPORTANT: store helper fns (getGoalsForDepartment, etc.) have stable refs
+  // — useMemo with them as deps would never re-run when the underlying Maps
+  // change. We add the actual data Maps (`goals`, `tasks`, `milestones`) to
+  // the deps so the dashboard repaints after edits.
   const deptGoals = useMemo(
     () => getGoalsForDepartment(departmentId),
-    [departmentId, getGoalsForDepartment],
+    [departmentId, getGoalsForDepartment, goals],
   );
 
-  // Sort goals by departmentPriority
+  // Sort goals by departmentPriority. Clamp out-of-range values (e.g. the
+  // historical 99 default for newly-created goals) so sorting still works.
   const sortedGoals = useMemo(
-    () => [...deptGoals].sort((a, b) => a.departmentPriority - b.departmentPriority),
+    () => [...deptGoals].sort((a, b) => clampGoalPriority(a.departmentPriority) - clampGoalPriority(b.departmentPriority)),
     [deptGoals],
   );
 
@@ -80,7 +99,7 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
       return {
         id: goal.id,
         name: goal.name,
-        priority: goal.departmentPriority,
+        priority: clampGoalPriority(goal.departmentPriority),
         progress,
         completed,
         total,
@@ -88,7 +107,9 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
         milestoneCount: goalMilestones.length,
       };
     });
-  }, [sortedGoals, getTasksForGoal, getMilestonesForGoal]);
+    // Include tasks/milestones maps so the memo recomputes when underlying
+    // data changes — getTasksForGoal/getMilestonesForGoal are stable refs.
+  }, [sortedGoals, getTasksForGoal, getMilestonesForGoal, tasks, milestones]);
 
   // Project contributions: projects that include this department
   const projectContributions = useMemo(() => {
