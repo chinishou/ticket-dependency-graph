@@ -117,6 +117,16 @@ function defaultPathForView(view: TopView): string {
   }
 }
 
+// Which TopView each role is allowed to render. Mirrors usePermission():
+//   - canAccessSettings (E) → admin only
+//   - canViewWorkers   (D) → admin & coordinator
+// The other views (F/A/B/C) are open to all roles.
+function isViewAllowed(view: TopView, role: UserRole): boolean {
+  if (view === 'E') return role === 'admin';
+  if (view === 'D') return role === 'admin' || role === 'coordinator';
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
@@ -160,6 +170,15 @@ function App() {
   }
 
   const route = parseRoute(location.pathname, searchParams);
+
+  // Route-level permission gate. The URL is the source of truth for which
+  // view renders, so anyone pasting /settings into the address bar would
+  // otherwise see Settings. Redirect non-admins off /settings and workers
+  // off /workers to their role's default view.
+  if (!isViewAllowed(route.topView, userRole)) {
+    return <Navigate to={defaultPathForRole(userRole)} replace />;
+  }
+
   return <AppContent route={route} />;
 }
 

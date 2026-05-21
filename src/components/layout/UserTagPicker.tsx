@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
 import type { UserRole } from '../../types';
 
@@ -20,6 +21,7 @@ export function UserTagPicker() {
   const isConnected = useStore((s) => s.isConnected);
   const userRole = useStore((s) => s.userRole);
   const upgradeToAdmin = useStore((s) => s.upgradeToAdmin);
+  const navigate = useNavigate();
 
   const [isOpen, setIsOpen] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
@@ -43,6 +45,11 @@ export function UserTagPicker() {
   }, [isOpen]);
 
   const handleSignOut = () => {
+    // Reset the URL first so the next login lands on the role's default view
+    // instead of replaying whatever path the signed-out user was on (e.g. an
+    // admin on /settings — their replacement would otherwise inherit the
+    // settings URL on next sign-in).
+    navigate('/', { replace: true });
     setUserName(null);
     setIsOpen(false);
   };
