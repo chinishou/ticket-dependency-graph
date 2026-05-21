@@ -30,7 +30,10 @@ export function UnplacedTasksPanel({ goalId, onClose }: UnplacedTasksPanelProps)
   );
 
   const handleAddToGoal = (task: Task) => {
-    addTaskToGoal(goalId, { ...task, goalId });
+    // Clear the unplaced flag — without this the task keeps the truthy flag
+    // it carried from SG import, which makes it invisible on Timeline (and
+    // anywhere else that filters by !unplaced).
+    addTaskToGoal(goalId, { ...task, goalId, unplaced: false });
   };
 
   const handleRemoveFromGoal = (taskId: string) => {

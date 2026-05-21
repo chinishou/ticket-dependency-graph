@@ -191,14 +191,15 @@ export function TimelineView({ onSelectGoal }: TimelineViewProps) {
 
   const allTasks = useMemo(
     () => {
-      // Drop orphans — tasks whose parent goal has been removed still live in
-      // tasksMap (`removeGoal` doesn't cascade-clean them), and without this
-      // filter the Timeline keeps rendering a phantom group for the dead
-      // goal labelled with the bare goalId. Filtering at the display layer
-      // makes the visible effect of removeGoal clean across both the
-      // tasks and the group it would build.
-      let tasks = Array.from(tasksMap.values())
-        .filter((t) => !t.unplaced && !t.archived && goalsMap.has(t.goalId));
+      // Visibility rule for Timeline tasks: not archived AND parented to
+      // a goal that still exists. We deliberately don't check the
+      // `unplaced` flag — historical data has tasks with a real goalId
+      // but a leftover `unplaced: true` flag from before the place-task
+      // fix; trusting `goalId` instead lets those heal without a
+      // migration. Freshly placed tasks set `unplaced: false` anyway.
+      let tasks = Array.from(tasksMap.values()).filter(
+        (t) => !t.archived && !!t.goalId && goalsMap.has(t.goalId),
+      );
       if (filterProject || filterDept) {
         tasks = tasks.filter((t) => {
           const projectIds = (t as { relatedProjectIds?: string[] }).relatedProjectIds ?? [];
