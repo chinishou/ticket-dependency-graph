@@ -63,7 +63,7 @@ All entities have bidirectional dependency links (e.g., `task.dependsOnTaskIds` 
 - **Zustand store** (`src/store/useStore.ts`) — single source of truth. Entity maps (`Map<string, T>`), optimistic mutations that fire-and-forget to server, polling for remote changes.
 - **6 top-level views** switched via ViewSwitcher in `App.tsx` (role-filtered):
   - **F: My Tasks** — Worker-focused view: active tasks, up-next queue, unlocks. Worker landing page.
-  - **A: Dependency Graph** — React Flow + dagre auto-layout (`rankdir: 'TB'`). Custom `TaskNode`/`MilestoneNode`. `nodesDraggable: false` enforced. Sub-views: goal-map (department-level) and tech-tree (goal-level). Coordinator landing page (goal-map sub-view). `GoalMapView` has a `ParentSelector` pill bar above it to switch between departments (purple) and active projects (blue). (Internal identifiers still use `tech-tree` for the sub-view enum and folder path — the rename only changed the user-facing label.)
+  - **A: Dependency Graph** — React Flow + dagre auto-layout (`rankdir: 'TB'`). Custom `TaskNode`/`MilestoneNode`. `nodesDraggable: false` enforced. Sub-views: goal-map (department-level) and tech-tree (goal-level). Coordinator landing page (goal-map sub-view). Parent (dept/project) switcher is `ParentDropdown` in the top bar — visible only on the goal-map sub-view. When drilled into a goal (tech-tree sub-view) the dropdown is hidden and the "Goal Map" button is shown instead. (Internal identifiers still use `tech-tree` for the sub-view enum and folder path — the rename only changed the user-facing label. The app icon is 🕸️ throughout.)
   - **B: Dashboard** — Drill-down: Company → Project/Department cards with progress stats. Sub-views: `company`, `project`, `department`, `cross`. The `cross` sub-view (`CrossView`) renders a Department × Project matrix table showing task counts, progress, and goal pills per cell. Inline P1/P2/P3 priority buttons (coordinator+ only). Admin landing page.
   - **C: Timeline** — Custom Gantt with dependency-based date scheduling, month axis, today marker.
   - **D: Workers** — Worker list by department, detail with active tasks, unlocks, priority-sorted queue. Admin/coordinator only.
@@ -114,9 +114,10 @@ Three roles: **Admin**, **Coordinator**, **Worker** (`src/types/index.ts: UserRo
 
 - **Express 5 + better-sqlite3** on port 3001 (override via `PORT` env var; honored by `server/index.ts`).
 - **Single `entities` table** with JSON blobs: `(table_name, id, data, updated_at)` — no ORM, no migrations.
-- **`users` table** — `(name, role, created_at)`. Roles: `worker` or `coordinator` only (admin never stored).
-- **`meta` table** — generic key/value store. `last_modified` for polling, `sg_status_map` for the outbound SG status mapping. Use `getMeta`/`setMeta` helpers in `server/db.ts`.
-- **Bidirectional sync** in `server/mutations.ts` — updating one side of a dependency automatically updates the other side, wrapped in SQLite transactions. Supports `updateTask`, `updateMilestone`, `updateGoal`, `updateDepartment`, `updateProject`, `updateWorker`, `addGoal`, `addMilestone`, `addTaskToGoal`, `removeTaskFromGoal`, `removeGoal`, `removeMilestoneFromGoal`.
+- **`users` table** — `(name, role, created_at)`. Roles: `worker` or `coordinator` only (admin never stored). Seeded from both `mockData.workers[].role` (on first boot, via `db.ts`) and `upsertWorkerFromSg` (per SG sync).
+- **`meta` table** — generic key/value store. Keys in use: `last_modified` (polling), `sg_status_map` (outbound TaskStatus → SG code), `sg_status_map_inbound` (inbound SG code → TaskStatus). Use `getMeta`/`setMeta` helpers in `server/db.ts`.
+- **Bidirectional sync** in `server/mutations.ts` — updating one side of a dependency automatically updates the other side, wrapped in SQLite transactions. Mutations: `updateTask/Milestone/Goal/Department/Project/Worker`, `addGoal/Milestone`, `addTaskToGoal`, `removeTaskFromGoal/MilestoneFromGoal/Goal`, **per-entity deletes** `removeWorker/Project/Department/Task/Milestone`, and **bulk clears** `bulkClearTickets/Workers`.
+- **Reference-protected deletes** — `removeWorker/Project/Department/Task/Milestone` scan all related entities and throw `BlockedByReferencesError` (HTTP 409 with `{ blockers: string[] }`) if anything still references the target. The reusable `src/components/shared/DeleteEntityButton.tsx` renders the inline confirm + blocker-list UI (admin-only). Bulk clears skip the check and cascade-clean refs (everything is going anyway).
 - **DB query ordering** — both `getAllEntities` and `getChangedEntitiesSince` in `server/db.ts` use `ORDER BY table_name, id`. This is load-bearing: `INSERT OR REPLACE` in SQLite reorders rows, so without `ORDER BY` the `Map.keys()` order is non-deterministic, which breaks fallback logic in `App.tsx` that uses `Array.from(departmentsMap.keys())[0]`.
 - **Presence system** — `presence` table with `(scope, user_name)` composite PK, 3-minute heartbeat timeout. Cleanup on sign-out captures `userName` in closure (store may already be null at cleanup time).
 - **Edit locks** — pessimistic at goal/tree scope, 5-minute auto-expiry.
@@ -157,6 +158,10 @@ Event-driven notification system with per-user persistence and toast alerts.
 - `setCalibrationWeights()` — emits `calibration_changed`.
 
 **Targeting:** Notifications include optional `targetUserIds` (worker IDs). `isNotificationRelevant()` filters the notification list to show only broadcast (no targets) or targeted-to-current-user notifications.
+
+### Demo seed (`src/data/mockData.ts` + `server/db.ts`)
+
+Intentionally minimal — meant to give a fresh DB something to render that the admin can then bulk-clear via Settings → SG: 1 company ("Demo Studio"), 1 department ("Demo Department"), 1 project, 1 goal, 2 workers, 4 tasks (one dependency chain + one independent), 1 milestone. Demo User Two has `role: 'coordinator'`; `db.ts` reads `workers[].role` on first boot and registers each worker in the `users` table via `INSERT OR IGNORE`. The Studio name is editable in Settings via `POST /api/company/name`, which reuses `setSgSiteName()` so manual edits and SG bootstrap land identically.
 
 ### Key Patterns
 
@@ -273,16 +278,23 @@ POST /api/sg/update-task-priority    body: { sgTicketId, priority } ← writes t
 
 # UI-facing (adminPassword)
 GET  /api/sg/status                  → { url, configured, counts, lastModified }
-GET  /api/sg/status-map              → { map, defaults }            (open)
+GET  /api/sg/status-map              → { map, defaults }            (open) — outbound
 POST /api/sg/status-map              body: { adminPassword, map }
+GET  /api/sg/status-map-inbound      → { map, defaults }            (open) — inbound
+POST /api/sg/status-map-inbound      body: { adminPassword, map }
 POST /api/sg/list-statuses           body: { adminPassword }        → spawns Python
 POST /api/sg/list-projects           body: { adminPassword }        → spawns Python
 POST /api/sg/trigger-sync            body: { adminPassword, entity, statuses?, projectIds?, sgId? }
 POST /api/sg/trigger-bootstrap       body: { adminPassword }
 POST /api/sg/sync-departments        body: { adminPassword, departments }
 POST /api/sg/bootstrap               body: { adminPassword, projects?, workers?, tickets? }
-POST /api/sg/clear-sg-data           body: { adminPassword }
+POST /api/sg/clear-sg-data           body: { adminPassword } — only rows with syncSource='sg'
+POST /api/sg/clear-all-tickets       body: { adminPassword, scope? } — scope='all'|'sg'
+POST /api/sg/clear-all-workers       body: { adminPassword, scope? } — scope='all'|'sg'
+POST /api/company/name               body: { adminPassword, name } — sets the Studio name shown in the header
 ```
+
+`trigger-sync` forwards `projectIds` to **both** `sync-projects` and `sync-tickets` (the Python side accepts `--project-ids` on both subcommands). The Tickets card's project picker is seeded from the Projects card's selected SG statuses (lifted into shared `projectStatusFilter` state in `SettingsSgSync`); the Projects card has its own per-project picker as well — see "Project filter for ticket imports" below.
 
 Entity IDs for SG-synced rows are always `sg-{sgId}`. The `syncSource: 'sg'` field marks them.
 
@@ -297,36 +309,39 @@ Both are fire-and-forget (silent failure by design — SG sync is corrected on n
 
 ### Configurable status mapping
 
-The TaskStatus → SG `sg_status_list` mapping used for outbound writes is **persisted in the `meta` table** (key `sg_status_map`) and configured from Settings → SG → "Status Mapping (Outbound)".
+Outbound (`TaskStatus → SG sg_status_list`) and inbound (`SG sg_status_list → TaskStatus`) are both persisted in `meta` and have explicit defaults baked into source.
 
-- Server defaults are in `DEFAULT_SG_STATUS_MAP` (`server/routes.ts`): `completed`→`res`, `in_progress`→`ip`, `available`/`locked`→`opn`, `blocked`→`hold`, `paused`→`wtg`.
+**Outbound** (`meta.sg_status_map`, configured from Settings → SG → "Status Mapping (Outbound)"):
+- Defaults in `DEFAULT_SG_STATUS_MAP` (`server/routes.ts`): `completed→res`, `in_progress→ip`, `available→rdy`, `blocked→bkd`, `paused→hld`, `locked→opn`.
 - Frontend mirrors them in `useStore.sgStatusMap` (initial value) and overwrites from `/api/sg/status-map` on every `fetchState()`.
 - `mapTaskStatusToSg(status)` in the store reads from `sgStatusMap` with `'opn'` as ultimate fallback.
-- The `SgStatusMap` component (`src/components/settings/SgStatusMap.tsx`) populates dropdown options from `POST /api/sg/list-statuses` (live SG site, no hardcoded codes user-facing) and flags codes that no longer exist in SG.
+- The `SgStatusMap` component (`src/components/settings/SgStatusMap.tsx`) populates dropdown options from `POST /api/sg/list-statuses` (live SG site) and flags codes that no longer exist in SG.
+
+**Inbound** (`meta.sg_status_map_inbound`, configured from Settings → SG → "Status Mapping (Inbound)"):
+- Defaults in `DEFAULT_SG_STATUS_MAP_INBOUND` (`server/routes.ts`) and `DEFAULT_INBOUND_MAP` (`server/mutations.ts`, kept in sync). Covers common codes: `res→completed`, `ip/cdrv/kckb/rev/wfb→in_progress`, `rdy/tri→available`, `bkd→blocked`, `hld→paused`, `opn/omt→locked`.
+- `mapSgStatusToTaskStatus()` in `server/mutations.ts` looks up the SG code in `defaults ⊕ user_overrides`, then falls back to substring keyword matching (`block/hold→blocked`, `wait/ready/open/new/rev→available`, etc.), and finally defaults to `'available'` (deliberate change from the older `'locked'` fallback so freshly imported tickets without dependencies don't surface as locked).
+- The `SgStatusMapInbound` component (`src/components/settings/SgStatusMapInbound.tsx`) renders **one row per local TaskStatus** with multi-select chips of the SG codes that resolve to it, making N-to-1 mappings visually obvious. Unmapped SG codes appear in a separate "Unmapped" row (they fall through to keyword matching).
 
 ### Project filter for ticket imports
 
-The Tickets card in Settings → SG → SG Import has a Projects filter populated live from `POST /api/sg/list-projects` (which runs `python sg_client.py list-projects`). When the user narrows the selection, `projectIds` is sent to `/api/sg/trigger-sync` and added to the `sync-tickets --project-ids=...` argv. When all projects are selected, no flag is passed (so newly-added SG projects auto-flow into future imports). This is **import-time only** — the live daemon still forwards every ticket event regardless of project.
+The Tickets card in Settings → SG → SG Import has a per-project chip picker. Its **visible list** is filtered to projects whose `sg_status` matches the Projects card's selected statuses — the shared `projectStatusFilter` state is lifted in `SettingsSgSync.tsx` and passed to the Tickets card as `inheritedProjectStatusFilter`. All matching projects start selected; the user can deselect individual chips. ↻ Refresh re-fetches the SG project list and re-applies the current filter (no auto-resync when statuses change — user's chip selections stay sticky until they hit Refresh). The Projects card itself also has a per-project picker on the same shape (the picker uses its own status filter as the inherited filter, via the same lifted state).
+
+When the user has narrowed the set, `projectIds` is sent to `/api/sg/trigger-sync` and forwarded as `--project-ids=...` to both `sync-tickets` and `sync-projects`. When every visible project is selected, the flag is omitted so newly-added SG projects auto-flow into future imports. This is **import-time only** — the live daemon still forwards every ticket event regardless of project.
 
 ### Source-of-truth split for Projects
 
 `upsertProjectFromSg` only overwrites SG-owned fields (`name`, `description`, `startDate`, `endDate`, `durationDays`, `sgProjectId`, `syncSource`). On **re-sync of an existing project**, local fields are never touched: `strategicPriority`, `status`, `contributingDepartmentIds`, `goalIds`, `milestoneIds`. Defaults (`P2`, `active`, `[]`) only apply on **first create**.
 
-### Status mapping inbound (`mapSgStatusToTaskStatus` in `server/mutations.ts`)
-
-Keyword substring match (case-insensitive), first match wins, falls back to `'locked'`:
-
-| Keywords | → TaskStatus |
-|----------|-------------|
-| resolved, closed, final, done, complete | `completed` |
-| in progress, in_progress, ip, working | `in_progress` |
-| wait, ready, open, new, rev | `available` |
-| block, hold | `blocked` |
-| pause, stop | `paused` |
-
 ### Role mapping (`upsertWorkerFromSg`)
 
 `permissionGroup` string (from SG) → local `role`:  Artist → `worker` · Manager → `coordinator` · Admin → `admin` · anything else → `worker`.
+
+`sync-workers` filters SG `HumanUser` by `sg_status_list='act'` (Active only) — disabled/retired users that already exist locally are removed by the daemon's retirement event handler on the next change.
+
+### Other SG-import notes
+
+- **Ticket descriptions are scrubbed**. `extractSgTicketDescription` (`server/mutations.ts`) strips the Environment/Description/footer template wrapping that the in-DCC reporter inserts, saving only the actual user prose. Hand-typed tickets that don't match the template are saved untouched. Applied in `upsertTaskFromSg`, which is the shared code path for both bootstrap imports and live daemon events.
+- **"Open in ShotGrid" URL** is built from `process.env.SG_URL` (helper `sgTicketUrl` in `server/mutations.ts`) — not hardcoded. Existing rows hold whatever URL was set at the time of upsert; they refresh on the next upsert (live daemon event or manual re-import).
 
 ## Container Deployment
 
