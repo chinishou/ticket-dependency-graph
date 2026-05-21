@@ -5,6 +5,20 @@ import { computeTaskPriorities, getPriorityLabel, getPriorityColor } from '../..
 import { usePermission } from '../../hooks/usePermission';
 import { DeleteEntityButton } from './DeleteEntityButton';
 
+// Display helper for sgEstimate / sgTimeLogged. Both are stored in days
+// (converted from SG's minutes at server ingress). Picks a sensible unit:
+// hours for sub-day amounts, days otherwise. Always trims trailing zeros so
+// "2.0 days" renders as "2 days".
+function formatDays(days?: number | null): string {
+  if (days == null || !Number.isFinite(days)) return '—';
+  if (days === 0) return '0 days';
+  if (Math.abs(days) < 1) {
+    const hours = days * 8; // 8-hour workday
+    return `${Number(hours.toFixed(1))}h`;
+  }
+  return `${Number(days.toFixed(2))} days`;
+}
+
 function CollapsibleDescription({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -468,16 +482,16 @@ export function TaskDetailPanel({ goalId }: { goalId: string }) {
           <span>{(task as { sgStatus?: string }).sgStatus}</span>
         </div>
       )}
-      {(task as { sgEstimate?: number }).sgEstimate && (
+      {(task as { sgEstimate?: number }).sgEstimate != null && (
         <div style={metaRowStyle}>
           <span style={{ color: 'var(--color-text-muted)' }}>SG Estimate</span>
-          <span>{(task as { sgEstimate?: number }).sgEstimate} days</span>
+          <span>{formatDays((task as { sgEstimate?: number }).sgEstimate)}</span>
         </div>
       )}
-      {(task as { sgTimeLogged?: number }).sgTimeLogged !== undefined && (
+      {(task as { sgTimeLogged?: number }).sgTimeLogged != null && (
         <div style={metaRowStyle}>
           <span style={{ color: 'var(--color-text-muted)' }}>Time Logged</span>
-          <span>{(task as { sgTimeLogged?: number }).sgTimeLogged}h</span>
+          <span>{formatDays((task as { sgTimeLogged?: number }).sgTimeLogged)}</span>
         </div>
       )}
       {(task as { sgAssignedTo?: { id: number; name: string }[] }).sgAssignedTo && (task as { sgAssignedTo?: { id: number; name: string }[] }).sgAssignedTo!.length > 0 && (

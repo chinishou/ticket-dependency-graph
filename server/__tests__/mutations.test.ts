@@ -23,6 +23,7 @@ import {
   setSgSiteName,
   mapSgStatusToTaskStatus,
   extractSgTicketDescription,
+  sgMinutesToDays,
 } from '../mutations';
 
 beforeEach(() => {
@@ -157,6 +158,34 @@ describe('extractSgTicketDescription', () => {
   it('handles CRLF line endings', () => {
     const raw = '------------\r\nDescription\r\n------------\r\nmy desc\r\n------------\r\nfooter';
     expect(extractSgTicketDescription(raw)).toBe('my desc');
+  });
+});
+
+// --- sgMinutesToDays ---
+
+describe('sgMinutesToDays', () => {
+  // SG returns durations in minutes; an 8-hour workday is 480 minutes.
+  it('converts whole-day values', () => {
+    expect(sgMinutesToDays(480)).toBe(1);       // 1 workday
+    expect(sgMinutesToDays(960)).toBe(2);       // 2 workdays — the reported bug case
+    expect(sgMinutesToDays(2400)).toBe(5);      // 5 workdays
+  });
+
+  it('converts fractional days at 2-decimal precision', () => {
+    expect(sgMinutesToDays(720)).toBe(1.5);     // 1.5 workdays — the other reported bug case
+    expect(sgMinutesToDays(120)).toBe(0.25);    // 30 min × 4 = 2h
+    expect(sgMinutesToDays(60)).toBe(0.13);     // 60 / 480 = 0.125 → rounded
+  });
+
+  it('passes through null/undefined/non-finite', () => {
+    expect(sgMinutesToDays(undefined)).toBeUndefined();
+    expect(sgMinutesToDays(null)).toBeUndefined();
+    expect(sgMinutesToDays(Number.NaN)).toBeUndefined();
+    expect(sgMinutesToDays(Number.POSITIVE_INFINITY)).toBeUndefined();
+  });
+
+  it('handles zero', () => {
+    expect(sgMinutesToDays(0)).toBe(0);
   });
 });
 
