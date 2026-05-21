@@ -29,7 +29,10 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   const getGoalsForProject = useStore((s) => s.getGoalsForProject);
   const getTasksForGoal = useStore((s) => s.getTasksForGoal);
 
-  const projectGoals = useMemo(() => getGoalsForProject(projectId), [projectId, getGoalsForProject]);
+  // Store helper fns have stable refs; include the data Maps in deps so the
+  // memo recomputes when goals/tasks change. Without this the dashboard
+  // shows stale data after edits (e.g. priority button clicks don't repaint).
+  const projectGoals = useMemo(() => getGoalsForProject(projectId), [projectId, getGoalsForProject, goals]);
 
   // All tasks across project goals
   const allProjectTasks = useMemo(() => {
@@ -38,7 +41,7 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       result.push(...getTasksForGoal(goal.id));
     }
     return result;
-  }, [projectGoals, getTasksForGoal]);
+  }, [projectGoals, getTasksForGoal, tasks]);
 
   // Overall progress
   const totalTasks = allProjectTasks.length;

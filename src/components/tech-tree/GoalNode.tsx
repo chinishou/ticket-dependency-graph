@@ -28,6 +28,15 @@ const STATUS_LABELS: Record<string, string> = {
   empty:       'No Tasks',
 };
 
+// Older goals were created with the sentinel value 99; clamp anything outside
+// the valid 1-3 range to 3 so the badge always shows P1/P2/P3.
+function clampGoalPriority(p: number | undefined | null): number {
+  if (p == null || !Number.isFinite(p)) return 3;
+  if (p < 1) return 1;
+  if (p > 3) return 3;
+  return Math.round(p);
+}
+
 function GoalNodeComponent({ data, selected }: NodeProps & { data: GoalNodeData }) {
   const { goal, completedTasks, totalTasks, tasksMap, dimmed, projectName, departmentName } = data;
   const pct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
@@ -75,7 +84,7 @@ function GoalNodeComponent({ data, selected }: NodeProps & { data: GoalNodeData 
               letterSpacing: '0.05em',
             }}
           >
-            P{goal.departmentPriority}
+            P{clampGoalPriority(goal.departmentPriority)}
           </span>
           <span
             style={{

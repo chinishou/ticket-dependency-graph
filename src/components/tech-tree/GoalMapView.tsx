@@ -20,6 +20,7 @@ import { usePermission } from '../../hooks/usePermission';
 import type { Goal } from '../../types';
 import { GoalNode, type GoalNodeData } from './GoalNode';
 import { GlobalUnplacedPanel } from './GlobalUnplacedPanel';
+import { GoalDetailPanel } from './GoalDetailPanel';
 
 const nodeTypes = { goalNode: GoalNode };
 
@@ -165,7 +166,10 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
       owner: userName || '',
       parentType,
       parentId,
-      departmentPriority: 99,
+      // Lowest of the three valid priority levels. Was 99 historically (a
+      // "sort last" sentinel) but that broke the priority UI and the
+      // priority calc, since the buttons only recognise 1/2/3.
+      departmentPriority: 3,
       taskIds: [],
       milestoneIds: [],
       dependsOnGoalIds: [],
@@ -527,6 +531,16 @@ export function GoalMapView({ parentType, parentId, onSelectGoal }: GoalMapViewP
 
       {showGlobalUnplaced && (
         <GlobalUnplacedPanel onClose={() => setShowGlobalUnplaced(false)} />
+      )}
+
+      {/* Single-click selects a goal and opens its detail panel. Double-click
+          still drills into the goal's dependency graph (onSelectGoal). */}
+      {selectedGoalId && !editMode && (
+        <GoalDetailPanel
+          goalId={selectedGoalId}
+          onClose={() => setSelectedGoalId(null)}
+          onOpenInDependencyGraph={(id) => onSelectGoal(id)}
+        />
       )}
     </div>
   );
